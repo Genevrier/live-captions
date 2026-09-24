@@ -77,6 +77,15 @@ class CaptionStateTest {
         assertNull(pcm.take())
         pcm.append(floatArrayOf(6f)); assertArrayEquals(floatArrayOf(6f), pcm.take(), 0f)
     }
+    @Test fun rebuildingDiscardsStaleBacklogWithoutClosingCaptureQueue() {
+        val queue = BoundedMailbox<Int>(2); val continuity = AudioContinuity()
+        assertFalse(continuity.gap(1)); assertTrue(continuity.gap(4))
+        queue.offer(5); queue.offer(6)
+        assertEquals(listOf(5,6), queue.drain()); assertEquals(0, queue.size())
+        continuity.reset(); queue.offer(10)
+        assertFalse(continuity.gap(queue.poll()!!.toLong()))
+        assertFalse(continuity.gap(11))
+    }
     @Test fun captionHistoryIsBounded() {
         val ledger = SegmentLedger(2); ledger.start(1)
         repeat(5) { ledger.source(1, "$it", true, 0) }

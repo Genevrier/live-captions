@@ -67,16 +67,17 @@ class CaptionSession(
     }
     private fun recognize() {
         var engine: com.asr.live.asr.AsrEngine? = null
-        var expectedSequence = 0L
+        val continuity = AudioContinuity()
+        var qnnFailed = false
         var audioMs = 0L
         var computeMs = 0L
         try {
             require(info.supports(config.profile.source)) { "${info.shortName} does not support ${config.profile.source}" }
             ModelStore.verify(ctx, info)
             if (!active.get()) return
-            fun create(): com.asr.live.asr.AsrEngine = if (config.qnn && info.kind == EngineKind.NEMOTRON)
+            fun create(): com.asr.live.asr.AsrEngine = if (config.qnn && !qnnFailed && info.kind == EngineKind.NEMOTRON)
                 com.asr.live.asr.QnnEngine(ctx, config.profile.source, config.threads, ::partial, ::endpoint,
-                    { backend -> CaptionState.metrics(generation) { it.copy(backend = backend) } },
+                    { backend -> if (backend.startsWith("CPU")) qnnFailed = true; CaptionState.metrics(generation) { it.copy(backend = backend) } },
                     { pcm.invalidate(); CaptionState.discontinuity(generation) })
             else EngineFactory.create(ctx, info, config.profile.source, "transcribe", ::partial, ::endpoint, config.threads)
             engine = create()
@@ -85,13 +86,16 @@ class CaptionSession(
             while (active.get()) {
                 val chunk = audioQueue.poll()
                 if (chunk == null) { Thread.sleep(10); continue }
-                if (expectedSequence != 0L && chunk.sequence != expectedSequence + 1) {
+                if (continuity.gap(chunk.sequence)) {
                     // Audio loss is a discontinuity: do not join speech from either side into one hypothesis.
                     checkNotNull(engine).release(); engine = null; engine = create()
                     pcm.take(); lastProvisionalText = ""
                     CaptionState.discontinuity(generation)
+                    val discarded = chunk.samples.size + audioQueue.drain().sumOf { it.samples.size }
+                    CaptionState.metrics(generation) { it.copy(droppedAudioMs = it.droppedAudioMs + discarded / 16) }
+                    continuity.reset()
+                    continue
                 }
-                expectedSequence = chunk.sequence
                 pcm.append(chunk.samples)
                 val start = now()
                 checkNotNull(engine).accept(chunk.samples)

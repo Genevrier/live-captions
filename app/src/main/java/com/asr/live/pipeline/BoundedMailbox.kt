@@ -14,6 +14,7 @@ class BoundedMailbox<T>(private val capacity: Int) {
         return dropped
     }
     @Synchronized fun poll(): T? = if (items.isEmpty()) null else items.removeFirst()
+    @Synchronized fun drain(): List<T> = items.toList().also { items.clear() }
     @Synchronized fun size() = items.size
     @Synchronized fun close(): List<T> {
         closed = true
@@ -40,4 +41,15 @@ class PcmBuffer(private val maxSamples: Int = 16_000 * 20) {
         return result
     }
     fun invalidate() { truncated = true }
+}
+
+/** Reset after rebuilding so the first fresh chunk cannot trigger another rebuild. */
+class AudioContinuity {
+    private var previous: Long? = null
+    fun gap(sequence: Long): Boolean {
+        val lost = previous?.let { sequence != it + 1 } ?: false
+        previous = sequence
+        return lost
+    }
+    fun reset() { previous = null }
 }
