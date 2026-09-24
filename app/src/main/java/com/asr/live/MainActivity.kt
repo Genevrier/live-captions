@@ -46,7 +46,7 @@ class MainActivity : ComponentActivity() {
                     hasOverlayPermission = hasOverlay,
                     onRequestOverlayPermission = {
                         runCatching { startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName"))) }
-                            .onFailure { com.asr.live.service.CaptionState.setError("Open Android Settings → Special app access → Display over other apps → Live Captions.") }
+                            .onFailure { com.asr.live.service.CaptionState.setError("Open Android Settings → Special app access → Display over other apps → LiveTranslate.") }
                     },
                 )
             }

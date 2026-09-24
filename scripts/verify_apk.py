@@ -3,7 +3,15 @@
 import struct, sys, zipfile
 with zipfile.ZipFile(sys.argv[1]) as apk:
     assert apk.testzip() is None, 'Corrupt APK ZIP member'
-    libraries = [n for n in apk.namelist() if n.startswith('lib/') and n.endswith('.so')]
+    entries = apk.namelist()
+    for density in ('mdpi', 'hdpi', 'xhdpi', 'xxhdpi', 'xxxhdpi'):
+        for icon in ('ic_launcher.xml', 'ic_launcher_round.xml'):
+            assert any(n.startswith(f'res/mipmap-{density}') and n.endswith('/' + icon) for n in entries), (density, icon)
+    assert any(n.startswith('res/mipmap-anydpi-v26/') and n.endswith('/ic_launcher.xml') for n in entries)
+    assert any(n.startswith('res/mipmap-anydpi-v26/') and n.endswith('/ic_launcher_round.xml') for n in entries)
+    for drawable in ('ic_launcher_foreground.xml', 'ic_launcher_background.xml', 'ic_launcher_monochrome.xml'):
+        assert any(n.startswith('res/drawable') and n.endswith('/' + drawable) for n in entries), drawable
+    libraries = [n for n in entries if n.startswith('lib/') and n.endswith('.so')]
     assert libraries, 'No native libraries'
     for name in libraries:
         assert name.startswith('lib/arm64-v8a/'), name

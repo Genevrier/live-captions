@@ -42,7 +42,7 @@ fun CaptionScreen(vm: CaptionViewModel, hasAudioPermission: Boolean, onRequestPe
     var modelManager by remember { mutableStateOf(false) }
     val stopped = lifecycle == ListeningState.STOPPED
     val info = ModelCatalog.byId(config.modelId) ?: ModelCatalog.DEFAULT
-    Scaffold(topBar = { TopAppBar(title = { Text("Live Captions") }, actions = {
+    Scaffold(topBar = { TopAppBar(title = { Text("LiveTranslate") }, actions = {
         TextButton(onClick = { settings = true }) { Text("Settings") }
     }) }, bottomBar = {
         Surface(tonalElevation = 3.dp) {

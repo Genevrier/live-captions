@@ -14,7 +14,13 @@ test "$actual" = "$(cat scripts/release-certificate.sha256)" || {
 "$build_tools/zipalign" -c -P 16 4 "$apk"
 python3 scripts/verify_apk.py "$apk"
 badging=$("$build_tools/aapt" dump badging "$apk")
-printf '%s\n' "$badging" | sed -n '1,12p'
+printf '%s\n' "$badging" | sed -n '1,16p'
+grep -F "application-label:'LiveTranslate'" <<< "$badging" >/dev/null
+launcher=$(grep '^launchable-activity:' <<< "$badging")
+[[ "$launcher" == *"name='com.asr.live.MainActivity'"* ]]
+[[ "$launcher" == *"label='LiveTranslate'"* ]]
+[[ "$launcher" == *"icon='res/mipmap"* ]]
+grep -E '^application-icon-[^:]+:.*res/mipmap' <<< "$badging" >/dev/null
 package=$(printf '%s\n' "$badging" | sed -n "s/^package: name='\([^']*\)'.*/\1/p")
 version=$(printf '%s\n' "$badging" | sed -n "s/^package:.* versionName='\([^']*\)'.*/\1/p")
 test "$package" = com.asr.live

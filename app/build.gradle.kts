@@ -19,8 +19,8 @@ android {
         minSdk = 29
         targetSdk = 35
         buildConfigField("boolean", "QNN_ENABLED", qnnEnabled.toString())
-        versionCode = 7
-        versionName = "2.4"
+        versionCode = 9
+        versionName = "2.6"
 
         // Honor Magic V5 uses arm64-v8a.
         ndk { abiFilters += "arm64-v8a" }
