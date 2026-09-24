@@ -9,6 +9,7 @@ import com.asr.live.model.ModelCatalog
 import com.asr.live.model.ModelInfo
 import com.asr.live.model.ModelRepository
 import com.asr.live.model.ModelStore
+import com.asr.live.model.EngineKind
 import com.asr.live.service.CaptionService
 import com.asr.live.service.CaptionState
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -37,6 +38,8 @@ class CaptionViewModel(app: Application) : AndroidViewModel(app) {
 
     private val _present = MutableStateFlow(presentIds())
     val present: StateFlow<Set<String>> = _present.asStateFlow()
+    private val _offlineReady = MutableStateFlow(isOfflineReady())
+    val offlineReady: StateFlow<Boolean> = _offlineReady.asStateFlow()
 
     // Re-exported recognizer/download state.
     val running = CaptionState.running
@@ -46,7 +49,10 @@ class CaptionViewModel(app: Application) : AndroidViewModel(app) {
     val status = CaptionState.status
     val download = ModelRepository.state
 
-    fun refreshPresence() { _present.value = presentIds() }
+    fun refreshPresence() {
+        _present.value = presentIds()
+        _offlineReady.value = isOfflineReady()
+    }
 
     fun selectedInfo(): ModelInfo = ModelCatalog.byId(_selected.value) ?: ModelCatalog.DEFAULT
 
@@ -54,6 +60,7 @@ class CaptionViewModel(app: Application) : AndroidViewModel(app) {
         if (running.value) return // don't switch engines mid-session
         _selected.value = id
         prefs.edit().putString(KEY_ENGINE, id).apply()
+        refreshPresence()
     }
 
     fun setSpoken(code: String) {
@@ -63,12 +70,14 @@ class CaptionViewModel(app: Application) : AndroidViewModel(app) {
         }
         _spoken.value = code
         prefs.edit().putString(KEY_SPOKEN, code).apply()
+        refreshPresence()
     }
 
     fun setTarget(code: String) {
         if (running.value) return
         _target.value = code
         prefs.edit().putString(KEY_TARGET, code).apply()
+        refreshPresence()
     }
 
     /** Swap spoken language and translation target (only meaningful when both are languages). */
@@ -80,12 +89,22 @@ class CaptionViewModel(app: Application) : AndroidViewModel(app) {
         _spoken.value = t
         _target.value = s
         prefs.edit().putString(KEY_SPOKEN, t).putString(KEY_TARGET, s).apply()
+        refreshPresence()
     }
 
     fun download(id: String) {
         val info = ModelCatalog.byId(id) ?: return
         viewModelScope.launch {
-            ModelRepository.download(getApplication(), info)
+            val ctx = getApplication<Application>()
+            if (!ModelStore.isPresent(ctx, info) && !ModelRepository.download(ctx, info)) {
+                refreshPresence()
+                return@launch
+            }
+            val source = if (info.isMultilingual) _spoken.value else "en"
+            val target = _target.value
+            if (needsMlKit(info, source, target) && !ModelRepository.translationPresent(ctx, source, target)) {
+                ModelRepository.prepareTranslation(ctx, info, source, target)
+            }
             refreshPresence()
         }
     }
@@ -104,6 +123,18 @@ class CaptionViewModel(app: Application) : AndroidViewModel(app) {
 
     private fun presentIds(): Set<String> =
         models.filter { ModelStore.isPresent(getApplication(), it) }.map { it.id }.toSet()
+
+    private fun isOfflineReady(): Boolean {
+        val info = selectedInfo()
+        if (!ModelStore.isPresent(getApplication(), info)) return false
+        val source = if (info.isMultilingual) _spoken.value else "en"
+        val target = _target.value
+        return !needsMlKit(info, source, target) ||
+            ModelRepository.translationPresent(getApplication(), source, target)
+    }
+
+    private fun needsMlKit(info: ModelInfo, source: String, target: String): Boolean =
+        target != Languages.OFF && target != source && !(info.kind == EngineKind.WHISPER && target == "en")
 
     private companion object {
         const val KEY_ENGINE = "engine"

@@ -65,7 +65,7 @@ fun CaptionScreen(
     onRequestPermission: () -> Unit,
 ) {
     val selected by vm.selected.collectAsState()
-    val present by vm.present.collectAsState()
+    val modelReady by vm.offlineReady.collectAsState()
     val running by vm.running.collectAsState()
     val lines by vm.lines.collectAsState()
     val partial by vm.partial.collectAsState()
@@ -76,7 +76,6 @@ fun CaptionScreen(
     val target by vm.target.collectAsState()
 
     val info = remember(selected) { vm.selectedInfo() }
-    val modelReady = selected in present
     val snackbar = remember { SnackbarHostState() }
     var showSettings by remember { mutableStateOf(false) }
 
@@ -114,7 +113,7 @@ fun CaptionScreen(
                 .padding(padding)
                 .fillMaxSize()
         ) {
-            ConfigBar(info = info, spoken = spoken, target = target, status = status)
+            ConfigBar(info = info, spoken = spoken, target = target, status = status, offlineReady = modelReady)
             Box(Modifier.fillMaxSize()) {
                 when {
                     !hasAudioPermission -> InfoCard(
@@ -198,7 +197,7 @@ private fun EngineTopBar(
 
 /** Thin banner under the bar: current spoken/translate config, or a transient status. */
 @Composable
-private fun ConfigBar(info: ModelInfo, spoken: String, target: String, status: String?) {
+private fun ConfigBar(info: ModelInfo, spoken: String, target: String, status: String?, offlineReady: Boolean) {
     if (status != null) {
         Surface(color = MaterialTheme.colorScheme.secondaryContainer) {
             Row(
@@ -215,7 +214,7 @@ private fun ConfigBar(info: ModelInfo, spoken: String, target: String, status: S
 
     val sourceLabel = if (info.isMultilingual) Languages.name(spoken) else "English"
     val summary = when {
-        target != Languages.OFF -> "$sourceLabel  →  ${Languages.name(target)} · ${info.shortName} / CPU · ${if (info.kind == com.asr.live.model.EngineKind.WHISPER && target == "en") "Whisper" else "ML Kit on-device"}"
+        target != Languages.OFF -> "$sourceLabel  →  ${Languages.name(target)} · ${info.shortName} / CPU · ${if (info.kind == com.asr.live.model.EngineKind.WHISPER && target == "en") "Whisper" else "ML Kit on-device"}${if (offlineReady) " · Offline ready" else ""}"
         info.isMultilingual -> sourceLabel
         else -> null
     }
@@ -404,6 +403,11 @@ private fun ModelGate(
                             LinearProgressIndicator(Modifier.fillMaxWidth())
                             Spacer(Modifier.height(8.dp))
                             Text("Extracting…")
+                        }
+                        ModelRepository.Phase.TRANSLATOR -> {
+                            LinearProgressIndicator(Modifier.fillMaxWidth())
+                            Spacer(Modifier.height(8.dp))
+                            Text("Downloading on-device translator…")
                         }
                     }
                 } else {

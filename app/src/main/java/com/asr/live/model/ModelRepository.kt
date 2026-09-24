@@ -20,7 +20,7 @@ import java.security.MessageDigest
  */
 object ModelRepository {
 
-    enum class Phase { DOWNLOAD, EXTRACT }
+    enum class Phase { DOWNLOAD, EXTRACT, TRANSLATOR }
 
     sealed interface DownloadState {
         data object Idle : DownloadState
@@ -30,6 +30,29 @@ object ModelRepository {
 
     private val _state = MutableStateFlow<DownloadState>(DownloadState.Idle)
     val state: StateFlow<DownloadState> = _state.asStateFlow()
+
+    suspend fun prepareTranslation(ctx: Context, info: ModelInfo, source: String, target: String): Boolean =
+        withContext(Dispatchers.IO) {
+            val translator = com.asr.live.i18n.MlKitTranslator(source, target)
+            try {
+                if (!translator.supported) error("unsupported translation direction: $source → $target")
+                _state.value = DownloadState.Running(info.id, Phase.TRANSLATOR, 0)
+                translator.prepare()
+                ctx.getSharedPreferences("translation_models", Context.MODE_PRIVATE).edit()
+                    .putBoolean("$source:$target", true).apply()
+                _state.value = DownloadState.Idle
+                true
+            } catch (t: Throwable) {
+                _state.value = DownloadState.Failed(info.id, t.message ?: "translation download failed")
+                false
+            } finally {
+                translator.close()
+            }
+        }
+
+    fun translationPresent(ctx: Context, source: String, target: String): Boolean =
+        ctx.getSharedPreferences("translation_models", Context.MODE_PRIVATE)
+            .getBoolean("$source:$target", false)
 
     @Volatile
     private var inFlight = false
