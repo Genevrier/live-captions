@@ -42,7 +42,7 @@ fun CaptionScreen(vm: CaptionViewModel, hasAudioPermission: Boolean, onRequestPe
             Row(Modifier.fillMaxWidth().navigationBarsPadding().padding(12.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 if (!hasAudioPermission) Button(onClick = onRequestPermission, modifier = Modifier.weight(1f)) { Text("Allow microphone") }
                 else if (!ready && stopped) Button(onClick = vm::downloadRequired, enabled = !busy, modifier = Modifier.weight(1f)) { Text(if (busy) "Downloading…" else "Download required models") }
-                else Button(onClick = vm::toggle, enabled = lifecycle != ListeningState.STOPPING, modifier = Modifier.weight(1f)) {
+                else Button(onClick = vm::toggle, enabled = lifecycle != ListeningState.STOPPING && (!stopped || !busy), modifier = Modifier.weight(1f)) {
                     Text(when (lifecycle) { ListeningState.STOPPED -> "Listen"; ListeningState.STOPPING -> "Stopping…"; else -> "Stop" })
                 }
                 TextButton(onClick = vm::clear) { Text("Clear") }

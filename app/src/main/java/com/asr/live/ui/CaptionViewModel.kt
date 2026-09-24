@@ -94,7 +94,7 @@ class CaptionViewModel(app: Application) : AndroidViewModel(app) {
     }
     fun toggle() {
         if (CaptionState.running.value) CaptionService.stop(getApplication())
-        else if (_ready.value) {
+        else if (_ready.value && !_busy.value) {
             val cfg = _config.value
             val check = runCatching { com.asr.live.i18n.TranslationPrompt.build(cfg.profile, "", cfg.glossary) }
             if (check.isFailure) CaptionState.setError(check.exceptionOrNull()?.message)
