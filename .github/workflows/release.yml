@@ -19,10 +19,16 @@ jobs:
           java-version: '17'
           cache: gradle
 
-      - uses: android-actions/setup-android@v3
+      - name: Locate Android SDK
+        run: |
+          SDKMANAGER=$(find "$ANDROID_HOME/cmdline-tools" -type f -name sdkmanager | head -1)
+          test -n "$SDKMANAGER"
+          echo "SDKMANAGER=$SDKMANAGER" >> "$GITHUB_ENV"
 
       - name: Install SDK packages
-        run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
+        run: |
+          yes | "$SDKMANAGER" --licenses >/dev/null || true
+          "$SDKMANAGER" "platforms;android-35" "build-tools;35.0.0"
 
       - name: Fetch verified sherpa-onnx runtime
         run: |
@@ -31,15 +37,27 @@ jobs:
             https://github.com/k2-fsa/sherpa-onnx/releases/download/v1.13.8/sherpa-onnx-1.13.8.aar
           echo '633c24321e06b1fe79feafa03ea16cbc0f8a286641e2da3559bac91bdb13bd96  app/libs/sherpa-onnx-1.13.8.aar' | sha256sum -c -
 
-      - name: Build debug APK
+      - name: Prepare persistent signing key
+        env:
+          KEYSTORE_B64: ${{ secrets.LIVE_CAPTIONS_KEYSTORE_B64 }}
+        run: |
+          test -n "$KEYSTORE_B64"
+          printf '%s' "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/live-captions.jks"
+          echo "LIVE_CAPTIONS_KEYSTORE=$RUNNER_TEMP/live-captions.jks" >> "$GITHUB_ENV"
+
+      - name: Build signed release APK
+        env:
+          LIVE_CAPTIONS_STORE_PASSWORD: ${{ secrets.LIVE_CAPTIONS_STORE_PASSWORD }}
+          LIVE_CAPTIONS_KEY_PASSWORD: ${{ secrets.LIVE_CAPTIONS_KEY_PASSWORD }}
         run: |
           chmod +x gradlew
-          ./gradlew :app:assembleDebug --no-daemon --stacktrace
+          ./gradlew :app:testDebugUnitTest :app:assembleRelease --no-daemon --stacktrace
 
       - name: Stage APK
         run: |
           mkdir -p out
-          cp app/build/outputs/apk/debug/app-debug.apk "out/live-captions-${GITHUB_REF_NAME}.apk"
+          cp app/build/outputs/apk/release/app-release.apk "out/live-captions-${GITHUB_REF_NAME}.apk"
+          sha256sum "out/live-captions-${GITHUB_REF_NAME}.apk" > "out/live-captions-${GITHUB_REF_NAME}.apk.sha256"
 
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
@@ -47,4 +65,4 @@ jobs:
           name: ${{ github.ref_name }}
           tag_name: ${{ github.ref_name }}
           generate_release_notes: true
-          files: out/*.apk
+          files: out/*
