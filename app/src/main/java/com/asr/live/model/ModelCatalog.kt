@@ -62,7 +62,7 @@ object ModelCatalog {
     val NEMOTRON = ModelInfo(
         id = "nemotron-3.5-560ms-int8",
         displayName = "Nemotron 3.5 Streaming 0.6B",
-        shortName = "Nemotron",
+        shortName = "Nemotron 3.5",
         tagline = "Multilingual live captions · CPU, 560 ms",
         kind = EngineKind.NEMOTRON,
         languages = setOf("nl", "en", "zh"),
