@@ -13,6 +13,7 @@ class BoundedMailbox<T>(private val capacity: Int) {
         items.addLast(value)
         return dropped
     }
+    @Synchronized fun peek(): T? = items.peekFirst()
     @Synchronized fun poll(): T? = if (items.isEmpty()) null else items.removeFirst()
     @Synchronized fun drain(): List<T> = items.toList().also { items.clear() }
     @Synchronized fun size() = items.size

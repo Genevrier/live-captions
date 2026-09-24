@@ -34,6 +34,7 @@ class CaptionSession(
     private val correctionEnabled = config.correction && config.profile.correctionSupported && config.modelId == ModelCatalog.NEMOTRON.id
     private val corrector = Thread(::correctLoop, "endpoint-correction")
     private val sequence = AtomicLong()
+    @Volatile private var activeFinalEndpoint: Long? = null
     @Volatile private var fastTranslator: LocalTranslator? = null
     @Volatile private var finalTranslator: LocalTranslator? = null
     private val fastEnabled = config.quality == TranslationQuality.ML_KIT || config.profile.fastBundle != null
@@ -103,7 +104,7 @@ class CaptionSession(
                 computeMs += duration; audioMs += chunk.samples.size / 16
                 CaptionState.metrics(generation) { it.copy(asrMs = duration,
                     asrRtf = computeMs.toDouble() / maxOf(1, audioMs), audioDepth = audioQueue.size(),
-                    backlogMs = (now() - chunk.capturedAt).coerceAtLeast(0)) }
+                    backlogMs = (now() - chunk.capturedAt).coerceAtLeast(0), captionBacklogMs = captionAge()) }
             }
         } catch (_: InterruptedException) {
         } catch (t: Throwable) { if (active.get()) fail("Recognition: ${t.message}") }
@@ -199,6 +200,7 @@ class CaptionSession(
                     continue
                 }
                 val started = now()
+                if (isFinal) activeFinalEndpoint = request.endpointAt
                 try {
                     val result = translator.translate(request.text)
                     if (!active.get()) break
@@ -209,12 +211,14 @@ class CaptionSession(
                         finalLatencyMs = if (accepted && isFinal && request.endpointAt != null) now() - request.endpointAt else m.finalLatencyMs) }
                 } catch (_: InterruptedException) { break }
                 catch (t: Exception) { if (isFinal && active.get()) CaptionState.skip(request.key, "Translation failed: ${t.message}") }
+                finally { if (isFinal) activeFinalEndpoint = null }
             }
         } catch (t: Throwable) { if (active.get()) fail("Translator: ${t.message}") }
         finally { translator?.close(); if (isFinal) finalTranslator = null else fastTranslator = null }
     }
     private fun depths() = CaptionState.metrics(generation) {
-        it.copy(provisionalDepth = provisional.size(), finalDepth = finals.size())
+        it.copy(provisionalDepth = provisional.size(), finalDepth = finals.size(), captionBacklogMs = captionAge())
     }
+    private fun captionAge(): Long = listOfNotNull(activeFinalEndpoint, finals.peek()?.endpointAt).minOrNull()?.let { (now() - it).coerceAtLeast(0) } ?: 0
     private fun now() = SystemClock.elapsedRealtime()
 }

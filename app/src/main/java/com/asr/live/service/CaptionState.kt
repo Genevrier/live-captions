@@ -9,6 +9,7 @@ data class Performance(
     val asrMs: Long = 0, val asrRtf: Double = 0.0, val translationMs: Long = 0,
     val provisionalLatencyMs: Long? = null, val finalLatencyMs: Long? = null,
     val audioDepth: Int = 0, val provisionalDepth: Int = 0, val finalDepth: Int = 0,
+    val captionBacklogMs: Long = 0,
     val backlogMs: Long = 0, val droppedAudioMs: Long = 0, val skippedTranslations: Int = 0,
     val correctionMs: Long = 0, val correctionRtf: Double = 0.0, val skippedCorrections: Int = 0,
     val asr: String = "", val translator: String = "ML Kit", val backend: String = "CPU",

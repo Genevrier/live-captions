@@ -132,6 +132,6 @@ private fun PerformancePanel(m: Performance) {
         "Translation ${m.translationMs} ms · correction ${m.correctionMs} ms / RTF ${"%.2f".format(m.correctionRtf)} · skipped ${m.skippedCorrections}\n" +
         "Endpoint → provisional ${m.provisionalLatencyMs?.let { "$it ms" } ?: "—"} · final ${m.finalLatencyMs?.let { "$it ms" } ?: "—"}\n" +
         "Audio queue ${m.audioDepth} · translation ${m.provisionalDepth}+${m.finalDepth}\n" +
-        "Capture backlog ${m.backlogMs} ms · dropped audio ${m.droppedAudioMs} ms · skipped translations ${m.skippedTranslations}"
+        "Caption backlog ${m.captionBacklogMs} ms · capture backlog ${m.backlogMs} ms\nDropped audio ${m.droppedAudioMs} ms · skipped translations ${m.skippedTranslations}"
     Text(text, style = MaterialTheme.typography.bodySmall, modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp))
 }
