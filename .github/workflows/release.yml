@@ -41,7 +41,7 @@ jobs:
 
       - name: Cache pinned QNN runtime build
         id: qnn-cache
-        uses: actions/cache@v4
+        uses: actions/cache/restore@v4
         with:
           path: app/libs/sherpa-onnx-qnn-1.13.8.aar
           key: qnn-1.13.8-ndk28.2-v1-${{ hashFiles('scripts/build_qnn.sh', 'scripts/package_qnn.py', 'app/src/main/cpp/ort/**') }}
