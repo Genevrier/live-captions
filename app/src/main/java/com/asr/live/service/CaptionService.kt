@@ -75,10 +75,13 @@ class CaptionService : Service() {
             current?.cancel()
             control.execute {
                 current?.join(); current = null
-                if (generation == requests.get()) {
-                    CaptionState.stopped(stoppedGeneration)
-                    stopForeground(STOP_FOREGROUND_REMOVE)
-                    stopSelfResult(latestStartId)
+                scope.launch {
+                    // Serialize the final stop with Android's main-thread start commands.
+                    if (generation == requests.get()) {
+                        CaptionState.stopped(stoppedGeneration)
+                        stopForeground(STOP_FOREGROUND_REMOVE)
+                        stopSelfResult(latestStartId)
+                    }
                 }
             }
             return START_NOT_STICKY
@@ -105,8 +108,12 @@ class CaptionService : Service() {
                 if (!destroyed) runCatching { control.execute {
                     if (generation == requests.get()) {
                         current?.cancel(); current?.join(); current = null
-                        CaptionState.stopped(generation)
-                        stopForeground(STOP_FOREGROUND_REMOVE); stopSelfResult(latestStartId)
+                        scope.launch {
+                            if (generation == requests.get()) {
+                                CaptionState.stopped(generation)
+                                stopForeground(STOP_FOREGROUND_REMOVE); stopSelfResult(latestStartId)
+                            }
+                        }
                     }
                 } }
             }

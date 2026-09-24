@@ -127,7 +127,7 @@ fun CaptionScreen(vm: CaptionViewModel, hasAudioPermission: Boolean, onRequestPe
             TextButton(onClick = vm::downloadRequired, enabled = stopped && !busy) { Text("Verify / repair required models") }
             TextButton(onClick = { modelManager = true }) { Text("Download / remove models") }
             Text("Recognition model")
-            vm.models().forEach { model -> TextButton(onClick = { vm.update(config.copy(modelId = model.id)) }, enabled = stopped && !busy) { Text((if (model.id == config.modelId) "✓ " else "") + model.displayName) } }
+            vm.models().forEach { model -> TextButton(onClick = { vm.update(config.copy(modelId = model.id)) }, enabled = stopped && !busy) { Text((if (model.kind == info.kind) "✓ " else "") + model.displayName) } }
             Text("ASR backend")
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Switch(checked = config.qnn, onCheckedChange = { vm.update(config.copy(qnn = it)) },
@@ -187,10 +187,10 @@ fun CaptionScreen(vm: CaptionViewModel, hasAudioPermission: Boolean, onRequestPe
                 managed.forEach { model ->
                     HorizontalDivider(Modifier.padding(vertical = 8.dp))
                     Text(model.label)
-                    Text("~${model.bytes / 1_000_000} MB download · ${if (model.installed) "Installed" else "Not installed"}", style = MaterialTheme.typography.bodySmall)
+                    Text("~${model.bytes / 1_000_000} MB download · ${if (model.installed) "Installed" else if (model.stored) "Incomplete / needs repair" else "Not installed"}", style = MaterialTheme.typography.bodySmall)
                     Row {
                         TextButton(onClick = { vm.downloadModel(model.id) }, enabled = stopped && !busy) { Text(if (model.installed) "Verify" else "Download") }
-                        TextButton(onClick = { vm.removeModel(model.id) }, enabled = stopped && !busy && model.installed) { Text("Remove") }
+                        TextButton(onClick = { vm.removeModel(model.id) }, enabled = stopped && !busy && model.stored) { Text("Remove") }
                     }
                 }
                 Text("ML Kit language packs, when selected, are managed by Google Play services.", style = MaterialTheme.typography.bodySmall)

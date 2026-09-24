@@ -13,7 +13,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import com.asr.live.overlay.OverlayPreferences
 import com.asr.live.overlay.OverlayOptions
 
-data class ManagedModel(val id: String, val label: String, val bytes: Long, val installed: Boolean, val selectable: Boolean = false)
+data class ManagedModel(val id: String, val label: String, val bytes: Long, val installed: Boolean, val selectable: Boolean = false, val stored: Boolean = installed)
 
 class CaptionViewModel(app: Application) : AndroidViewModel(app) {
     private val prefs = app.getSharedPreferences("profiles_v2", Context.MODE_PRIVATE)
@@ -113,9 +113,9 @@ class CaptionViewModel(app: Application) : AndroidViewModel(app) {
             asrAssets.map { info ->
                 val installed = ModelStore.isPresent(getApplication(), info)
                 ManagedModel(info.id, if (info in ModelCatalog.NEMOTRON_PROFILES) "Nemotron CPU · ${ModelCatalog.chunkLabel(info.chunkMs)}" else info.displayName,
-                    info.archiveBytes, installed, installed && loaded(info))
+                    info.archiveBytes, installed, installed && loaded(info), ModelStore.dir(getApplication(), info.id).exists())
             } + bundleIds.map { id -> val b = TranslationModels.bundle(getApplication(), id)
-                ManagedModel(id, b.label, b.size, TranslationModels.present(getApplication(), id)) }
+                ManagedModel(id, b.label, b.size, TranslationModels.present(getApplication(), id), stored = ModelStore.dir(getApplication(), id).exists()) }
         }
     }
     private suspend fun validateChunk(info: ModelInfo) = withContext(Dispatchers.IO) {

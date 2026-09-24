@@ -1,6 +1,7 @@
 package com.asr.live
 
 import android.content.Context
+import android.content.Intent
 import android.os.Looper
 import android.view.WindowManager
 import android.widget.LinearLayout
@@ -9,12 +10,14 @@ import com.asr.live.overlay.*
 import com.asr.live.pipeline.*
 import com.asr.live.service.CaptionState
 import com.asr.live.service.ListeningState
+import com.asr.live.service.CaptionService
 import org.junit.After
 import org.junit.Assert.*
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
+import org.robolectric.Robolectric
 import org.robolectric.RuntimeEnvironment
 import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
@@ -67,12 +70,38 @@ class FloatingCaptionsTest {
         assertEquals("Good morning", (view.getChildAt(1) as TextView).text.toString())
         assertEquals(4, (view.getChildAt(1) as TextView).maxLines)
         assertEquals("Goedemorgen", (view.getChildAt(2) as TextView).text.toString())
+        prefs.update(prefs.state.value.copy(touchThrough = false))
+        render()
+        val draggable = views().single().layoutParams as WindowManager.LayoutParams
+        assertEquals(0, draggable.flags and WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE)
+        assertEquals(1f, draggable.alpha, 0f)
         render(ListeningState.STOPPING)
         assertTrue(views().isEmpty())
         render()
         assertEquals(1, views().size)
         overlay.close()
         assertTrue(views().isEmpty())
+    }
+    @Test fun notificationToggleDoesNotStartOrReplaceRecognitionSession() {
+        val controller = Robolectric.buildService(CaptionService::class.java,
+            Intent(context, CaptionService::class.java).setAction("com.asr.live.action.OVERLAY")).create()
+        try {
+            CaptionState.begin(900, SessionConfig(), "Nemotron")
+            CaptionState.source(900, "bestaande zin", false, 0)
+            val original = CaptionState.lines.value
+            controller.startCommand(0, 1)
+            shadowOf(Looper.getMainLooper()).idle()
+            assertTrue(prefs.state.value.enabled)
+            assertEquals(ListeningState.STARTING, CaptionState.lifecycle.value)
+            assertEquals(original, CaptionState.lines.value)
+            controller.startCommand(0, 2)
+            shadowOf(Looper.getMainLooper()).idle()
+            assertFalse(prefs.state.value.enabled)
+            assertEquals(original, CaptionState.lines.value)
+        } finally {
+            CaptionState.cancel(900); CaptionState.stopped(900)
+            controller.destroy()
+        }
     }
     @Test fun displayResizeRecreatesOneClampedWindowAndSettingsPersist() {
         prefs.update(OverlayOptions(enabled = true, fontSp = 30))
