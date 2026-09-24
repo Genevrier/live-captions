@@ -55,13 +55,13 @@ class CaptionService : Service() {
             val session = CaptionSession(applicationContext, generation, config) { message ->
                 CaptionState.error(generation, message)
                 CaptionState.cancel(generation)
-                if (!destroyed) control.execute {
+                if (!destroyed) runCatching { control.execute {
                     if (generation == requests.get()) {
                         current?.cancel(); current?.join(); current = null
                         CaptionState.stopped(generation)
                         stopForeground(STOP_FOREGROUND_REMOVE); stopSelfResult(startId)
                     }
-                }
+                } }
             }
             current = session
             if (destroyed || generation != requests.get()) session.cancel() else session.start()
