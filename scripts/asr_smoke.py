@@ -63,3 +63,18 @@ print('Nemotron Dutch CPU:',result,'partials',len(partials),'seconds',round(time
 # New stream / language option after endpoint reset must remain valid.
 r.reset(stream);stream.set_option('language','en')
 print('PASS: recorded Dutch streaming, language prompting and stream reset')
+
+# Phrase ASR depends on this exact separately downloaded Silero model.
+vad_path=root/'silero_vad.onnx'
+urllib.request.urlretrieve('https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/silero_vad.onnx',vad_path)
+assert hashlib.sha256(vad_path.read_bytes()).hexdigest() == '9e2449e1087496d8d4caba907f23e0bd3f78d91fa552479bb9c23ac09cbb1fd6'
+config=sherpa_onnx.VadModelConfig();config.silero_vad.model=str(vad_path)
+config.silero_vad.min_silence_duration=0.3;config.silero_vad.max_speech_duration=4;config.sample_rate=16000
+vad=sherpa_onnx.VoiceActivityDetector(config,buffer_size_in_seconds=10)
+for offset in range(0,len(audio),512): vad.accept_waveform(audio[offset:offset+512])
+vad.flush();segments=0
+while not vad.empty():
+    assert len(vad.front.samples)>0
+    segments+=1;vad.pop()
+assert segments>0
+print('PASS: pinned Silero VAD executed, detected phrase segments:',segments)
