@@ -39,7 +39,15 @@ jobs:
           mkdir -p app/build/ort
           unzip -oq app/libs/sherpa-onnx-1.13.8.aar "jni/arm64-v8a/libonnxruntime.so" -d app/build/ort
 
+      - name: Cache pinned QNN runtime build
+        id: qnn-cache
+        uses: actions/cache@v4
+        with:
+          path: app/libs/sherpa-onnx-qnn-1.13.8.aar
+          key: qnn-1.13.8-ndk28.2-v1-${{ hashFiles('scripts/build_qnn.sh', 'scripts/package_qnn.py', 'app/src/main/cpp/ort/**') }}
+
       - name: Build experimental QNN runtime
+        if: steps.qnn-cache.outputs.cache-hit != 'true'
         env:
           ANDROID_NDK: ${{ env.ANDROID_HOME }}/ndk/28.2.13676358
         run: |
