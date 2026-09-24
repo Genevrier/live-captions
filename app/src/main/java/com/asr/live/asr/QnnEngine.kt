@@ -63,7 +63,18 @@ class QnnEngine(private val ctx: Context, private val language: String, private 
             if (result.getBoolean("endpoint")) onFinal(text) else onPartial(text)
         } catch (t: Exception) { onGap(); fallback(t); cpu!!.accept(samples) }
     }
-    override fun finish() { cpu?.finish() }
+    override fun finish() {
+        cpu?.let { it.finish(); return }
+        try {
+            val result = call(10) { it.finish() }
+            if (result.getBoolean("endpoint")) onFinal(result.getString("text").orEmpty())
+            onPartial("")
+        } catch (t: Exception) {
+            onGap()
+            fallback(t)
+            cpu?.finish()
+        }
+    }
     override fun release() {
         // Killing only the dedicated same-UID worker also handles a hung vendor call.
         disconnect(); rpc.shutdownNow(); cpu?.release(); cpu = null

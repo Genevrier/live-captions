@@ -17,7 +17,8 @@ class NativeTranslator(path: File, threads: Int, private val opus: Boolean, priv
         val prompt = if (opus) text else TranslationPrompt.build(profile, text, glossary)
         val result = run(pointer, prompt.toByteArray(Charsets.UTF_8)).toString(Charsets.UTF_8).trim()
         val durations = stats(pointer)
-        lastTimings = TranslationTimings(durations.getOrElse(0) { 0 }, durations.getOrElse(1) { 0 })
+        lastTimings = TranslationTimings(durations.getOrElse(0) { 0 }, durations.getOrElse(1) { 0 },
+            durations.getOrElse(2) { 0 }, durations.getOrElse(3) { 0 })
         check(result.isNotEmpty()) { "Translator returned empty output" }
         return result
     }

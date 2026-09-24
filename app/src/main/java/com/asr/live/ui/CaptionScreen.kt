@@ -263,9 +263,13 @@ fun CaptionScreen(vm: CaptionViewModel, hasAudioPermission: Boolean, onRequestPe
 private fun PerformancePanel(m: Performance) {
     val text = "${m.performanceMode} · ${m.profile}\nASR: ${m.asr.ifBlank { "Not running" }} · ${m.backend} · chunk ${m.chunk}\n" +
         "Translator: ${m.translator} · ${m.translationBackend}\nASR ${m.asrMs} ms · RTF ${"%.2f".format(m.asrRtf)}\n" +
-        "Translation ${m.translationMs} ms · prefill ${m.translationPrefillMs} · decode ${m.translationDecodeMs} ms\n" +
+        "Translation ${m.translationMs} ms · TTFT ${m.translationFirstTokenMs} ms · prefill ${m.translationPrefillMs} · " +
+        "decode ${m.translationDecodeMs} ms · ${"%.1f".format(m.translationTokensPerSecond)} tok/s\n" +
         "Correction ${m.correctionMs} ms / RTF ${"%.2f".format(m.correctionRtf)} · ${m.correctionThreads} threads · skipped ${m.skippedCorrections}\n" +
-        "Endpoint → provisional ${m.provisionalLatencyMs?.let { "$it ms" } ?: "—"} · final ${m.finalLatencyMs?.let { "$it ms" } ?: "—"}\n" +
+        "Segment audio → provisional ${m.audioToProvisionalMs?.let { "$it ms" } ?: "—"} · " +
+        "stable prefix → provisional ${m.stableToProvisionalMs?.let { "$it ms" } ?: "—"}\n" +
+        "Segment audio → final ${m.audioToFinalMs?.let { "$it ms" } ?: "—"} · " +
+        "ASR endpoint → final ${m.finalLatencyMs?.let { "$it ms" } ?: "—"}\n" +
         "Audio queue ${m.audioDepth} · translation ${m.provisionalDepth}+${m.finalDepth}\n" +
         "Caption backlog ${m.captionBacklogMs} ms · capture backlog ${m.backlogMs} ms\nDropped audio ${m.droppedAudioMs} ms · skipped translations ${m.skippedTranslations}\n" +
         "App RAM ${m.appPssKb / 1024} MiB PSS · process RSS ${m.rssKb / 1024} MiB\n" +

@@ -7,6 +7,8 @@
 struct TranslationStats {
     int64_t prefill_ms = 0;
     int64_t decode_ms = 0;
+    int64_t first_token_ms = 0;
+    int64_t output_tokens = 0;
 };
 
 class TranslationEngine {

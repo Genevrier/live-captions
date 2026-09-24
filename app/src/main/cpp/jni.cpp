@@ -29,9 +29,9 @@ extern "C" JNIEXPORT jstring JNICALL Java_com_asr_live_i18n_NativeTranslator_bac
 }
 extern "C" JNIEXPORT jlongArray JNICALL Java_com_asr_live_i18n_NativeTranslator_stats(JNIEnv * env, jobject, jlong handle) {
     const auto stats = reinterpret_cast<TranslationEngine *>(handle)->stats();
-    const jlong values[] = {stats.prefill_ms, stats.decode_ms};
-    jlongArray result = env->NewLongArray(2);
-    if (result) env->SetLongArrayRegion(result, 0, 2, values);
+    const jlong values[] = {stats.prefill_ms, stats.decode_ms, stats.first_token_ms, stats.output_tokens};
+    jlongArray result = env->NewLongArray(4);
+    if (result) env->SetLongArrayRegion(result, 0, 4, values);
     return result;
 }
 

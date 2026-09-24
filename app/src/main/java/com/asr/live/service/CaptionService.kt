@@ -73,8 +73,13 @@ class CaptionService : Service() {
         val generation = requests.incrementAndGet()
         if (intent?.action == ACTION_STOP || intent == null) {
             val stoppedGeneration = displayedGeneration
-            CaptionState.cancel(stoppedGeneration)
-            current?.cancel()
+            if (CaptionState.lifecycle.value == ListeningState.LISTENING) {
+                CaptionState.stopping(stoppedGeneration)
+                current?.stop()
+            } else {
+                CaptionState.cancel(stoppedGeneration)
+                current?.cancel()
+            }
             control.execute {
                 current?.join(); current = null
                 scope.launch {

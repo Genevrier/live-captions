@@ -1,0 +1,7 @@
+numpy==2.5.3
+onnxruntime==1.28.0
+pyarrow==21.0.0
+sacrebleu==2.5.1
+sherpa-onnx==1.13.8
+soundfile==0.13.1
+yt-dlp==2026.08.19

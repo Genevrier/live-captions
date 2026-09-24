@@ -72,6 +72,7 @@ class HyMt final : public TranslationEngine {
 
     std::string run(const std::string & prompt) {
         checkCancelled();
+        const auto requestStart = std::chrono::steady_clock::now();
         llama_memory_clear(llama_get_memory(context.get()), true);
         const auto * vocab = llama_model_get_vocab(model.get());
         const auto * format = llama_model_chat_template(model.get(), nullptr);
@@ -120,6 +121,11 @@ class HyMt final : public TranslationEngine {
                 if (size < 0) throw std::runtime_error("Invalid translation token");
                 result.append(larger.data(), size);
             } else result.append(buffer, size);
+            if (lastStats.output_tokens == 0) {
+                lastStats.first_token_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                    std::chrono::steady_clock::now() - requestStart).count();
+            }
+            ++lastStats.output_tokens;
             auto batch = llama_batch_get_one(&token, 1);
             if (llama_decode(context.get(), batch) != 0) throw std::runtime_error("Hy-MT2 decode failed or cancelled");
         }

@@ -17,6 +17,8 @@ class BoundedMailbox<T>(private val capacity: Int) {
     @Synchronized fun poll(): T? = if (items.isEmpty()) null else items.removeFirst()
     @Synchronized fun drain(): List<T> = items.toList().also { items.clear() }
     @Synchronized fun size() = items.size
+    /** Stop accepting input while allowing a worker to consume already queued values. */
+    @Synchronized fun closeForDrain() { closed = true }
     @Synchronized fun close(): List<T> {
         closed = true
         return items.toList().also { items.clear() }

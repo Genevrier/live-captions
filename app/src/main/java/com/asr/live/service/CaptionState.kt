@@ -8,7 +8,9 @@ enum class ListeningState { STOPPED, STARTING, LISTENING, STOPPING }
 data class Performance(
     val asrMs: Long = 0, val asrRtf: Double = 0.0, val translationMs: Long = 0,
     val translationPrefillMs: Long = 0, val translationDecodeMs: Long = 0,
-    val provisionalLatencyMs: Long? = null, val finalLatencyMs: Long? = null,
+    val translationFirstTokenMs: Long = 0, val translationTokensPerSecond: Double = 0.0,
+    val audioToProvisionalMs: Long? = null, val stableToProvisionalMs: Long? = null,
+    val audioToFinalMs: Long? = null, val finalLatencyMs: Long? = null,
     val audioDepth: Int = 0, val provisionalDepth: Int = 0, val finalDepth: Int = 0,
     val captionBacklogMs: Long = 0,
     val backlogMs: Long = 0, val droppedAudioMs: Long = 0, val skippedTranslations: Int = 0,
@@ -73,6 +75,8 @@ object CaptionState {
         if (id != generation) return
         ledger.cancel(); publish(); setLifecycle(ListeningState.STOPPING)
     }
+    /** Mark a normal stop while keeping the current segment open for recognizer flush. */
+    @Synchronized fun stopping(id: Long) { if (id == generation) setLifecycle(ListeningState.STOPPING) }
     @Synchronized fun stopped(id: Long) {
         if (id != generation) return
         setLifecycle(ListeningState.STOPPED); _status.value = null

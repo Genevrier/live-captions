@@ -9,4 +9,11 @@ interface LocalTranslator : AutoCloseable {
     fun cancel() {}
 }
 
-data class TranslationTimings(val prefillMs: Long = 0, val decodeMs: Long = 0)
+data class TranslationTimings(
+    val prefillMs: Long = 0,
+    val decodeMs: Long = 0,
+    val firstTokenMs: Long = 0,
+    val outputTokens: Long = 0,
+) {
+    val tokensPerSecond: Double get() = if (decodeMs > 0) outputTokens * 1000.0 / decodeMs else 0.0
+}

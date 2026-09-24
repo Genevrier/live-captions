@@ -2,6 +2,8 @@ package com.asr.live
 
 import com.asr.live.model.ModelCatalog
 import com.asr.live.pipeline.*
+import com.asr.live.service.CaptionState
+import com.asr.live.service.ListeningState
 import org.junit.Assert.*
 import org.junit.Test
 
@@ -75,6 +77,19 @@ class CaptionStateTest {
         assertFalse(ledger.current(row.key))
         assertEquals(CaptionStage.CANCELLED, ledger.snapshot().single().stage)
     }
+    @Test fun gracefulStopKeepsSegmentOpenUntilFinalTranslationArrives() {
+        val id = 995_201L
+        CaptionState.begin(id, SessionConfig(quality = TranslationQuality.ML_KIT), "Nemotron")
+        val partial = CaptionState.source(id, "Ik denk", false, 1)!!
+        CaptionState.stopping(id)
+        assertEquals(ListeningState.STOPPING, CaptionState.lifecycle.value)
+        assertTrue(CaptionState.current(partial.key))
+        val endpoint = CaptionState.source(id, "Ik denk het wel", true, 2)!!
+        assertEquals(partial.key.id, endpoint.key.id)
+        assertTrue(CaptionState.translated(endpoint.key, "I think so", 2, true))
+        assertEquals(CaptionStage.FINAL, CaptionState.lines.value.single().stage)
+        CaptionState.stopped(id)
+    }
     @Test fun clearDoesNotReuseIds() {
         val ledger = SegmentLedger(); ledger.start(1)
         val old = ledger.source(1, "old", true, 0)!!
@@ -88,6 +103,13 @@ class CaptionStateTest {
         assertNull(queue.offer(1)); assertEquals(1, queue.offer(2))
         assertEquals(1, queue.size()); assertEquals(2, queue.poll())
         queue.close(); assertEquals(3, queue.offer(3)); assertNull(queue.poll())
+    }
+    @Test fun gracefulMailboxCloseDrainsExistingAudioAndRejectsLaterInput() {
+        val queue = BoundedMailbox<Int>(2)
+        assertNull(queue.offer(1)); assertNull(queue.offer(2))
+        queue.closeForDrain()
+        assertEquals(3, queue.offer(3))
+        assertEquals(1, queue.poll()); assertEquals(2, queue.poll()); assertNull(queue.poll())
     }
     @Test fun overloadReturnsExactlyTheLostAudio() {
         val queue = BoundedMailbox<Int>(2)

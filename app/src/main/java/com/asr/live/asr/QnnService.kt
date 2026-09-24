@@ -35,6 +35,11 @@ class QnnService : Service() {
             engine!!.accept(samples)
             Bundle().apply { putString("text", text); putBoolean("endpoint", endpoint) }
         }.get()
+        override fun finish(): Bundle = worker.submit<Bundle> {
+            endpoint = false; text = ""
+            engine!!.finish()
+            Bundle().apply { putString("text", text); putBoolean("endpoint", endpoint) }
+        }.get()
         override fun shutdown() { worker.submit { engine?.release(); engine = null }.get() }
     }
     override fun onBind(intent: Intent?) = binder

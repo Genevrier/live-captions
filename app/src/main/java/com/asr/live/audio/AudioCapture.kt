@@ -10,6 +10,7 @@ class AudioCapture(
     private val context: Context,
     private val onChunk: (FloatArray) -> Unit,
     private val onStarted: () -> Unit,
+    private val onFinished: () -> Unit,
     private val onError: (Throwable) -> Unit,
 ) {
     companion object {
@@ -20,6 +21,7 @@ class AudioCapture(
     private val active = AtomicBoolean(true)
     private var worker: Thread? = null
     fun start() { worker = Thread(::loop, "microphone").also { it.start() } }
+    fun stopCapturing() { active.set(false) }
     fun cancel() { active.set(false); worker?.interrupt() }
     fun join() { worker?.join() }
     @SuppressLint("MissingPermission")
@@ -52,8 +54,14 @@ class AudioCapture(
                     if (filled == pcm.size) { onChunk(FloatArray(filled) { pcm[it] / 32768f }); filled = 0 }
                 }
             }
+            // Stop can land between device reads. Preserve the last partial PCM
+            // frame so the recognizer's finish() sees every captured sample.
+            if (filled > 0) onChunk(FloatArray(filled) { pcm[it] / 32768f })
         } catch (_: InterruptedException) {
         } catch (t: Throwable) { if (active.get()) onError(t) }
-        finally { recorder?.let { runCatching { it.stop() }; it.release() } }
+        finally {
+            recorder?.let { runCatching { it.stop() }; it.release() }
+            onFinished()
+        }
     }
 }
