@@ -58,6 +58,14 @@ object CaptionState {
         }
     }
 
+    @Synchronized
+    fun failTranslation(id: Long, reason: String) {
+        _lines.value = _lines.value.map { line ->
+            if (line.id == id && line.state == "provisional") line.copy(text = reason, state = "translation failed")
+            else line
+        }
+    }
+
     fun setPartial(text: String) { _partial.value = text.trim() }
     fun setRunning(running: Boolean) { _running.value = running }
     fun setError(message: String?) { _error.value = message }

@@ -58,7 +58,7 @@ class CaptionViewModel(app: Application) : AndroidViewModel(app) {
 
     fun setSpoken(code: String) {
         if (running.value) return
-        if (code == "zh" && selectedInfo().kind == com.asr.live.model.EngineKind.OFFLINE_PARAKEET) {
+        if (code != "en" && !selectedInfo().isMultilingual) {
             select(ModelCatalog.WHISPER_SMALL.id)
         }
         _spoken.value = code

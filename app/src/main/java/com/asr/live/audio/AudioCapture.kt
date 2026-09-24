@@ -10,7 +10,10 @@ import java.io.IOException
  * Continuously records 16 kHz mono audio and hands ~100 ms float chunks to [onChunk]
  * on a dedicated thread. The caller must hold RECORD_AUDIO before calling [start].
  */
-class AudioCapture(private val onChunk: (FloatArray) -> Unit) {
+class AudioCapture(
+    private val onChunk: (FloatArray) -> Unit,
+    private val onError: (Throwable) -> Unit = {},
+) {
 
     @Volatile private var running = false
     private var thread: Thread? = null
@@ -19,7 +22,10 @@ class AudioCapture(private val onChunk: (FloatArray) -> Unit) {
     fun start() {
         if (running) return
         running = true
-        thread = Thread(::loop, "asr-audio").also { it.start() }
+        thread = Thread({
+            try { loop() } catch (t: Throwable) { if (running) onError(t) }
+            finally { running = false }
+        }, "asr-audio").also { it.start() }
     }
 
     fun stop() {

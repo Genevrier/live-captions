@@ -31,7 +31,7 @@ import java.util.concurrent.atomic.AtomicLong
  */
 class CaptionService : Service() {
 
-    private val queue = ArrayBlockingQueue<FloatArray>(64)
+    private val queue = ArrayBlockingQueue<FloatArray>(16)
     private val translationQueue = ArrayBlockingQueue<Pair<Long, String>>(16)
     private val poison = FloatArray(0)
 
@@ -62,7 +62,7 @@ class CaptionService : Service() {
     }
 
     private fun startEngine(info: ModelInfo, spoken: String, target: String) {
-        if (worker != null) return
+        if (worker?.isAlive == true) return
         CaptionState.setError(null)
 
         // Whisper can translate straight to English itself; for any other target we transcribe
@@ -96,14 +96,20 @@ class CaptionService : Service() {
         if (translator != null) translationWorker = Thread(::translationLoop, "translation").also { it.start() }
         worker = Thread(::decodeLoop, "asr-decode").also { it.start() }
 
-        audio = com.asr.live.audio.AudioCapture { chunk ->
-            if (!queue.offer(chunk)) {
-                queue.poll()
-                queue.offer(chunk)
-                droppedAudio.incrementAndGet()
-                CaptionState.setStatus("Audio backlog: ${queue.size} chunks · dropped: ${droppedAudio.get()}")
-            }
-        }
+        audio = com.asr.live.audio.AudioCapture(
+            onChunk = { chunk ->
+                if (!queue.offer(chunk)) {
+                    queue.poll()
+                    queue.offer(chunk)
+                    droppedAudio.incrementAndGet()
+                    CaptionState.setStatus("Audio backlog: ${queue.size} chunks · dropped: ${droppedAudio.get()}")
+                }
+            },
+            onError = { t ->
+                CaptionState.setError("Microphone error: ${t.message}")
+                stopSelf()
+            },
+        )
         try {
             audio?.start()
         } catch (t: Throwable) {
@@ -118,8 +124,8 @@ class CaptionService : Service() {
         if (translator != null) {
             val id = CaptionState.appendSource(text)
             if (!translationQueue.offer(id to text)) {
-                translationQueue.poll()
-                if (!translationQueue.offer(id to text)) CaptionState.setError("Translation backlog full")
+                translationQueue.poll()?.let { CaptionState.failTranslation(it.first, "Translation skipped: backlog") }
+                if (!translationQueue.offer(id to text)) CaptionState.failTranslation(id, "Translation skipped: backlog")
             }
         } else {
             CaptionState.appendFinal(text)
@@ -135,11 +141,16 @@ class CaptionService : Service() {
             while (!Thread.currentThread().isInterrupted) {
                 val (id, text) = translationQueue.poll(500, TimeUnit.MILLISECONDS) ?: continue
                 try { CaptionState.applyTranslation(id, 1, tr.translate(text)) }
-                catch (t: Throwable) { CaptionState.setError("Translation failed: ${t.message}") }
+                catch (t: Throwable) {
+                    CaptionState.failTranslation(id, "Translation failed")
+                    CaptionState.setError("Translation failed: ${t.message}")
+                }
             }
         } catch (_: InterruptedException) {
         } catch (t: Throwable) {
             CaptionState.setError("Translation model unavailable: ${t.message}")
+        } finally {
+            tr.close()
         }
     }
 
@@ -156,6 +167,9 @@ class CaptionService : Service() {
             // stopping
         } catch (t: Throwable) {
             CaptionState.setError("Recognition error: ${t.message}")
+        } finally {
+            e.release()
+            engine = null
         }
     }
 
@@ -165,15 +179,15 @@ class CaptionService : Service() {
         queue.clear()
         queue.offer(poison)
         worker?.join(3000)
-        if (worker?.isAlive == true) worker?.interrupt()
-        worker = null
-        engine?.release()
-        engine = null
+        if (worker?.isAlive == true) {
+            worker?.interrupt()
+            worker?.join(3000)
+        }
+        if (worker?.isAlive != true) worker = null
         translationWorker?.interrupt()
         translationWorker?.join(3000)
-        translationWorker = null
+        if (translationWorker?.isAlive != true) translationWorker = null
         translationQueue.clear()
-        translator?.close()
         translator = null
         CaptionState.setRunning(false)
         CaptionState.setPartial("")
