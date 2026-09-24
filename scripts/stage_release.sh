@@ -14,7 +14,7 @@ test "$actual" = "$(cat scripts/release-certificate.sha256)" || {
 "$build_tools/zipalign" -c -P 16 4 "$apk"
 python3 scripts/verify_apk.py "$apk"
 badging=$("$build_tools/aapt" dump badging "$apk")
-printf '%s\n' "$badging" | sed -n '1,16p'
+printf '%s\n' "$badging" | grep -E "^(package:|application-label:'LiveTranslate'|application-icon-(160|240|320|480|640):|application:|launchable-activity:)"
 grep -F "application-label:'LiveTranslate'" <<< "$badging" >/dev/null
 resources=$("$build_tools/aapt" dump resources "$apk")
 grep -F 'mipmap/ic_launcher_round' <<< "$resources" >/dev/null
