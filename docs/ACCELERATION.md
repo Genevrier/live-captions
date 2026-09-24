@@ -31,7 +31,8 @@ uses QNN 2.40.
 
 The APK packages QAIRT 2.40.0.251030 HTP, System and HTP-v79 Stub libraries; the
 matching Hexagon v79 skeleton is an APK asset copied into private app storage.
-ADSP_LIBRARY_PATH includes that directory. Host libraries are extracted by the
+ADSP_LIBRARY_PATH includes that directory. The manifest declares the optional
+`libcdsprpc.so` system library so Android 12+ can expose the DSP RPC dependency. Host libraries are extracted by the
 Android installer and checked for 16 KB ELF alignment. The DSP skeleton is not an
 Android arm64 ELF and is not placed in the Android native-library directory.
 
