@@ -142,7 +142,7 @@ fun CaptionScreen(vm: CaptionViewModel, hasAudioPermission: Boolean, onRequestPe
                     Text((if (mode == config.performanceMode) "✓ " else "") + mode.label)
                 }
             }
-            Text("Max Quality uses one Hy-MT2 7B Q4_K_M engine for both stable live prefixes and endpoints. It does not load OPUS. Ultra Low Latency is the optional OPUS A/B profile: the same stable Dutch text from one live ASR stream is sent to OPUS and Hy Q4, with OPUS used for the provisional caption. QNN and OpenCL are experimental until tested on this phone.", style = MaterialTheme.typography.bodySmall)
+            Text("Max Quality uses one Hy-MT2 7B Q4_K_M engine for both stable live prefixes and endpoints. It does not load OPUS. For Dutch → English, Ultra Low Latency optionally runs OPUS A/B: identical stable text from one live ASR stream goes to OPUS and Hy Q4, and OPUS supplies the provisional caption. Profiles without a pinned OPUS bundle stay Hy-only. QNN and OpenCL are experimental until tested on this phone.", style = MaterialTheme.typography.bodySmall)
             if (config.performanceMode == PerformanceMode.FAST && config.profile.fastBundle != null) {
                 Text("Live OPUS vs Hy-MT2 A/B from the same microphone audio", style = MaterialTheme.typography.titleMedium)
                 Text("Both translators receive the identical stable Nemotron transcript prefix. Latency is measured per output; compare translation quality side by side and record a preference. Votes are human judgments, not reference-scored accuracy.", style = MaterialTheme.typography.bodySmall)

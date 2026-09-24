@@ -13,7 +13,7 @@ enum class Profile(val source: String, val target: String, val label: String) {
 }
 
 enum class PerformanceMode(val label: String) {
-    FAST("Ultra Low Latency · OPUS A/B"), BALANCED("Balanced"), MAX_QUALITY("Max quality");
+    FAST("Ultra Low Latency"), BALANCED("Balanced"), MAX_QUALITY("Max quality");
 
     companion object {
         fun defaultFor(soc: String?, manufacturer: String?, model: String?): PerformanceMode =

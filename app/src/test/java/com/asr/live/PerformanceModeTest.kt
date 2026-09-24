@@ -4,6 +4,7 @@ import com.asr.live.pipeline.PerformanceMode
 import com.asr.live.pipeline.Profile
 import com.asr.live.pipeline.SessionConfig
 import com.asr.live.pipeline.TranslationQuality
+import com.asr.live.pipeline.opusBenchmarkEnabled
 import com.asr.live.pipeline.withMode
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse

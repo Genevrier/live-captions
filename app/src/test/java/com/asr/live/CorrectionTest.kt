@@ -40,6 +40,6 @@ class CorrectionTest {
         ledger.discontinuity(1)
         assertFalse(ledger.current(row.key))
         assertFalse(ledger.translate(row.key, "Late", 0, false))
-        assertNull(ledger.revise(row.key, "Late correction"))
+        assertNull(ledger.reviseTranslated(row.key, "Late correction", "Too late"))
     }
 }
