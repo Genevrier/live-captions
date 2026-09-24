@@ -13,7 +13,7 @@ enum class Profile(val source: String, val target: String, val label: String) {
 }
 
 enum class PerformanceMode(val label: String) {
-    FAST("Fast"), BALANCED("Balanced"), MAX_QUALITY("Max quality");
+    FAST("Ultra Low Latency · OPUS A/B"), BALANCED("Balanced"), MAX_QUALITY("Max quality");
 
     companion object {
         fun defaultFor(soc: String?, manufacturer: String?, model: String?): PerformanceMode =
@@ -60,10 +60,14 @@ data class SessionConfig(
 fun SessionConfig.withMode(mode: PerformanceMode): SessionConfig {
     val recognizer = if (profile == Profile.CHINESE_ENGLISH) "qwen3-asr-0.6b-int8" else "nemotron-3.5-560ms-int8"
     val quality = when (mode) {
-        PerformanceMode.FAST -> TranslationQuality.HY_Q4
+        PerformanceMode.FAST -> TranslationQuality.HY_7B_Q4
         PerformanceMode.BALANCED -> TranslationQuality.HY_Q8
-        PerformanceMode.MAX_QUALITY -> TranslationQuality.HY_7B_Q6
+        PerformanceMode.MAX_QUALITY -> TranslationQuality.HY_7B_Q4
     }
     return copy(performanceMode = mode, modelId = recognizer, quality = quality,
         correction = mode == PerformanceMode.MAX_QUALITY && profile.correctionSupported)
 }
+
+/** OPUS is loaded only for the explicit low-latency A/B profile, never for Max Quality. */
+val SessionConfig.opusBenchmarkEnabled: Boolean
+    get() = performanceMode == PerformanceMode.FAST && profile.fastBundle != null && quality != TranslationQuality.ML_KIT

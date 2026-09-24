@@ -7,39 +7,43 @@ bounded in-memory buffer and is not saved or uploaded.
 
 ## Profiles
 
-| Profile | Recognition | Provisional translation | Final translation |
-|---|---|---|---|
-| **Dutch → English (default)** | Nemotron 3.5 0.6B INT8, 560 ms | OPUS-MT nl-en INT8 | Hy-MT2 7B Q6_K on Magic V5; 1.8B Q8_0 elsewhere |
-| Mandarin → English | Qwen3-ASR 0.6B INT8, VAD phrases up to 4 s | Source transcript while final is pending | Selected Hy-MT2 7B or 1.8B |
-| English → French | Nemotron 3.5 0.6B INT8, 560 ms | OPUS-MT en-fr INT8 | Selected Hy-MT2 7B or 1.8B |
+| Profile | Recognition | Translation |
+|---|---|---|
+| **Dutch → English (default)** | Nemotron 3.5 0.6B INT8, 560 ms | One Hy-MT2 engine translates stable prefixes and endpoints; Magic V5 defaults to 7B Q4_K_M |
+| Mandarin → English | Qwen3-ASR 0.6B INT8, VAD phrases up to 4 s | Selected Hy-MT2 model translates stable text and endpoints; Parakeet is never used |
+| English → French | Nemotron 3.5 0.6B INT8, 560 ms | Selected Hy-MT2 model translates stable prefixes and endpoints |
 
-The Honor Magic V5 (including model identifier MBH-N49) starts in **MAX QUALITY** mode: Nemotron 560 ms and Hy-MT2
-7B Q6_K on CPU. FAST and BALANCED presets select smaller Hy-MT2 models. Selecting
-a preset never silently enables an untested accelerator or second-pass recognizer.
-Settings include a sequential on-device translation A/B control for installed
-1.8B Q8, 7B Q4 and 7B Q6 models. Compare outputs with a human reference before
-judging accuracy; latency and memory telemetry alone cannot rank quality.
+The Honor Magic V5 (including model identifier MBH-N49) starts in **MAX QUALITY** mode:
+Nemotron 560 ms and Hy-MT2 7B Q4_K_M. This path uses a single resident Hy engine
+for provisional and final output and does not load OPUS. The optional **Ultra Low
+Latency · OPUS A/B** profile runs OPUS and Hy Q4 on identical stable text from the
+same microphone/ASR stream. It reports per-output latency and lets the listener
+record a preference; those votes are human judgments, not reference-scored accuracy.
+The separate quantization autotune compares 7B Q4, Q5, Q6 and Q8 model outputs.
+Selecting a preset never silently enables an untested accelerator.
 The 7B model requires 2 GiB of available system memory beyond its estimated model
 and ASR file sizes; low-memory devices should choose a smaller model explicitly.
 
-All translation defaults use native CPU inference. OPUS uses SentencePiece,
+Hy-MT2 uses the selected native CPU/OpenCL backend, resets its context per request,
+and supports an optional `source -> target` glossary. OPUS is only loaded in the
+explicit Ultra Low Latency A/B profile and uses SentencePiece,
 separate encoder execution and a merged decoder with cached self/cross attention.
-Hy-MT2 uses pinned llama.cpp, resets its context per request, and supports an
-optional `source -> target` glossary. Q6_K and Q4_K_M are selectable memory/speed
-alternatives; all three quantizations have local model execution evidence. ML Kit is an explicitly selected local
+Q6_K and Q4_K_M are selectable memory/speed alternatives; all three quantizations
+have local model execution evidence. ML Kit is an explicitly selected local
 fallback, never a silent substitution. Whisper base is a compatibility ASR option;
 it transcribes source text through the same translation pipeline.
 
-Dutch and English can optionally use Parakeet TDT 0.6B v3 for an endpoint second
-hypothesis. It is off by default, limited to one pending utterance, and skipped
-when work falls behind. A valid timely result revises the same caption and is
-translated again. Parakeet is never used for Mandarin. This heuristic is not a
-claim that Parakeet is always more accurate.
+Dutch and English can use Parakeet TDT 0.6B v3 as an optional endpoint second
+hypothesis. It is limited to one pending utterance and skipped when work falls
+behind. For an accepted correction, Hy translates the candidate before the source
+and English output are replaced together. Parakeet is never used for Mandarin.
+This heuristic is not a claim that Parakeet is always more accurate.
 
 ## Reliability and controls
 
-- Independent microphone, recognition, provisional translation, final translation
-  and optional correction workers; bounded queues and explicit overload counters.
+- Independent capture, recognition, translation and optional correction stages.
+  One Hy worker handles live prefixes and endpoints in the default path; bounded
+  queues prioritize endpoints and coalesce stale provisional requests.
 - Stable source prefixes, caption segment IDs and monotonically increasing
   revisions reject stale results. Provisional, final, revised and skipped states
   are visible. Source text appears below the prominent translation.
@@ -52,8 +56,9 @@ claim that Parakeet is always more accurate.
 - Model downloads use pinned URLs, sizes and SHA-256, temporary files, verified
   installation, retries and progress. Installed models are rehashed before use.
   Settings → **Verify / repair required models** repairs damaged installations.
-- Dutch Magic V5 default download is approximately 6.8 GB; optional correction adds
-  487 MB. Model files require additional space during verified installation.
+- The displayed download estimate follows the selected ASR, translation, QNN and
+  correction models. Model files require additional temporary space during
+  verified installation.
 
 ## CPU, QNN and GPU
 

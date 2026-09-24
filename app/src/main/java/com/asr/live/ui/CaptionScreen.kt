@@ -34,6 +34,7 @@ fun CaptionScreen(vm: CaptionViewModel, hasAudioPermission: Boolean, onRequestPe
     val overlay by vm.overlay.collectAsState()
     val managed by vm.managed.collectAsState()
     val benchmark by vm.benchmark.collectAsState()
+    val comparisons by vm.comparisons.collectAsState()
     val benchmarkBusy by vm.benchmarkBusy.collectAsState()
     var benchmarkText by remember { mutableStateOf("Goedemorgen, dit is een test van de live vertaling.") }
     var settings by remember { mutableStateOf(false) }
@@ -67,8 +68,13 @@ fun CaptionScreen(vm: CaptionViewModel, hasAudioPermission: Boolean, onRequestPe
             }
             Text("Performance: ${config.performanceMode.label}", style = MaterialTheme.typography.titleSmall)
             Text("ASR: ${info.shortName} · ${info.chunkMs?.let { "$it ms" } ?: "VAD phrases"} · ${if (!stopped) metrics.backend else if (config.qnn && info.kind == EngineKind.NEMOTRON) "QNN requested · experimental / CPU fallback" else "CPU"} · ${config.threads} threads", style = MaterialTheme.typography.bodySmall)
-            Text("Final: ${config.quality.label}", style = MaterialTheme.typography.bodySmall)
-            Text("Provisional: ${if (config.quality == TranslationQuality.ML_KIT) "ML Kit on-device" else config.profile.fastBundle?.let { "$it · CPU" } ?: "off"}", style = MaterialTheme.typography.bodySmall)
+            Text("Translation: ${config.quality.label}", style = MaterialTheme.typography.bodySmall)
+            val liveTranslator = when {
+                config.opusBenchmarkEnabled -> "OPUS CPU + ${config.quality.label} A/B"
+                config.quality == TranslationQuality.ML_KIT -> "ML Kit on-device"
+                else -> "${config.quality.label} · ${if (!stopped) metrics.translationBackend else if (config.gpuTranslation && com.asr.live.BuildConfig.OPENCL_ENABLED) "OpenCL requested" else "CPU"}"
+            }
+            Text("Live provisional: $liveTranslator", style = MaterialTheme.typography.bodySmall)
             Text(if (ready) "Offline ready" else "Required pinned models: ~${vm.downloadMegabytes()} MB${if (config.quality == TranslationQuality.ML_KIT) " + ML Kit language pack" else ""}", style = MaterialTheme.typography.labelMedium)
             if (download is ModelRepository.DownloadState.Running) {
                 val d = download as ModelRepository.DownloadState.Running
@@ -136,7 +142,30 @@ fun CaptionScreen(vm: CaptionViewModel, hasAudioPermission: Boolean, onRequestPe
                     Text((if (mode == config.performanceMode) "✓ " else "") + mode.label)
                 }
             }
-            Text("Max quality keeps the official 7B Q6 translator resident and attempts Adreno 830 OpenCL when the compiled runtime detects that GPU; otherwise it reports CPU fallback. QNN and OpenCL are experimental until tested on this phone. Model size alone does not prove accuracy or real-time performance.", style = MaterialTheme.typography.bodySmall)
+            Text("Max Quality uses one Hy-MT2 7B Q4_K_M engine for both stable live prefixes and endpoints. It does not load OPUS. Ultra Low Latency is the optional OPUS A/B profile: the same stable Dutch text from one live ASR stream is sent to OPUS and Hy Q4, with OPUS used for the provisional caption. QNN and OpenCL are experimental until tested on this phone.", style = MaterialTheme.typography.bodySmall)
+            if (config.performanceMode == PerformanceMode.FAST && config.profile.fastBundle != null) {
+                Text("Live OPUS vs Hy-MT2 A/B from the same microphone audio", style = MaterialTheme.typography.titleMedium)
+                Text("Both translators receive the identical stable Nemotron transcript prefix. Latency is measured per output; compare translation quality side by side and record a preference. Votes are human judgments, not reference-scored accuracy.", style = MaterialTheme.typography.bodySmall)
+                comparisons.takeLast(5).forEach { row ->
+                    HorizontalDivider(Modifier.padding(vertical = 6.dp))
+                    Text("Dutch: ${row.source}", style = MaterialTheme.typography.bodySmall)
+                    Text("OPUS · ${row.opusMs?.let { "$it ms" } ?: "waiting"}: ${row.opusText ?: "—"}", style = MaterialTheme.typography.bodySmall)
+                    Text("Hy Q4 · ${row.hyMs?.let { "$it ms" } ?: "waiting"}: ${row.hyText ?: "—"}", style = MaterialTheme.typography.bodySmall)
+                    if (row.opusText != null && row.hyText != null) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                            listOf(TranslationVote.OPUS, TranslationVote.HY_MT2, TranslationVote.TIE).forEach { vote ->
+                                TextButton(onClick = { vm.rateComparison(row.key, vote) }) {
+                                    Text((if (row.vote == vote) "✓ " else "") + when (vote) {
+                                        TranslationVote.OPUS -> "OPUS better"
+                                        TranslationVote.HY_MT2 -> "Hy better"
+                                        TranslationVote.TIE -> "Tie"
+                                    })
+                                }
+                            }
+                        }
+                    }
+                }
+            }
             Text("Recognition model")
             vm.models().forEach { model -> TextButton(onClick = { vm.update(config.copy(modelId = model.id)) }, enabled = stopped && !busy) { Text((if (model.kind == info.kind) "✓ " else "") + model.displayName) } }
             Text("ASR backend")

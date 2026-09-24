@@ -21,12 +21,21 @@ class PerformanceModeTest {
     @Test fun maxQualityEnablesSupportedEndpointCorrectionWithoutImplyingAcceleratorAvailability() {
         val max = SessionConfig().withMode(PerformanceMode.MAX_QUALITY)
         assertEquals("nemotron-3.5-560ms-int8", max.modelId)
-        assertEquals(TranslationQuality.HY_7B_Q6, max.quality)
+        assertEquals(TranslationQuality.HY_7B_Q4, max.quality)
         assertFalse(max.qnn)
         assertFalse(max.gpuTranslation)
         assertTrue(max.correction)
         val chinese = SessionConfig(profile = Profile.CHINESE_ENGLISH).withMode(PerformanceMode.MAX_QUALITY)
         assertEquals("qwen3-asr-0.6b-int8", chinese.modelId)
         assertFalse(chinese.correction)
+    }
+
+    @Test fun opusIsOnlyLoadedForExplicitUltraLowLatencyComparison() {
+        assertFalse(SessionConfig().withMode(PerformanceMode.MAX_QUALITY).opusBenchmarkEnabled)
+        assertFalse(SessionConfig().withMode(PerformanceMode.BALANCED).opusBenchmarkEnabled)
+        assertTrue(SessionConfig().withMode(PerformanceMode.FAST).opusBenchmarkEnabled)
+        assertFalse(SessionConfig(profile = Profile.CHINESE_ENGLISH).withMode(PerformanceMode.FAST).opusBenchmarkEnabled)
+        assertFalse(SessionConfig().withMode(PerformanceMode.FAST)
+            .copy(quality = TranslationQuality.ML_KIT).opusBenchmarkEnabled)
     }
 }

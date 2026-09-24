@@ -18,15 +18,21 @@ class CorrectionTest {
         assertFalse(CorrectionPolicy.accept("Goedemorgen iedereen", "Hallo iedereen", 3001, 0))
         assertTrue(CorrectionPolicy.accept("Goedemorgen iedereen", "Goedemorgen allemaal", 800, 0))
     }
-    @Test fun correctionRetranslatesSameSegmentAndRejectsOldResult() {
+    @Test fun correctionPublishesRevisedSourceAndHyTranslationAtomically() {
         val ledger = SegmentLedger(); ledger.start(1)
         val row = ledger.source(1, "Hallo werelt", true, 0)!!
         ledger.translate(row.key, "Hello", 2, true)
-        val revised = ledger.revise(row.key, "Hallo wereld")!!
+        val committed = ledger.snapshot().single()
+        val revised = ledger.reviseTranslated(row.key, "Hallo wereld", "Hello world")!!
         assertEquals(row.key.id, revised.key.id)
+        assertEquals("Hallo werelt", committed.source)
+        assertEquals("Hello", committed.translation)
+        assertEquals("Hallo wereld", revised.source)
+        assertEquals("Hello world", revised.translation)
+        assertEquals(revised.key.revision, revised.translatedRevision)
+        assertEquals(CaptionStage.REVISED, revised.stage)
         assertFalse(ledger.translate(row.key, "Old result", 2, true))
-        assertTrue(ledger.translate(revised.key, "Hello world", 2, true))
-        assertEquals(CaptionStage.REVISED, ledger.snapshot().single().stage)
+        assertNull(ledger.reviseTranslated(row.key, "Late correction", "Too late"))
     }
     @Test fun skippedAndDiscontinuousSegmentsCannotBeRevived() {
         val ledger = SegmentLedger(); ledger.start(1)

@@ -27,6 +27,26 @@ class CaptionStateTest {
         assertEquals("Hallo wereld", stable.accept("Hallo wereld vandaag"))
         assertEquals("", stable.accept("Dag wereld"))
     }
+    @Test fun rawUnstableSuffixEditsKeepStableTranslationRevision() {
+        val ledger = SegmentLedger(); ledger.start(1)
+        ledger.source(1, "Hallo wereld vandaag", false, 1)
+        val stable = ledger.source(1, "Hallo wereld tijdens", false, 2)!!
+        assertEquals("Hallo wereld", stable.stableSource)
+        assertTrue(ledger.translate(stable.key, "Hello world", 0, false))
+        val rawEdit = ledger.source(1, "Hallo wereld morgen", false, 3)!!
+        assertEquals(stable.key, rawEdit.key)
+        assertEquals("Hello world", rawEdit.translation)
+        val extended = ledger.source(1, "Hallo wereld morgen samen", false, 4)!!
+        assertTrue(extended.key.revision > stable.key.revision)
+        assertEquals("", extended.translation)
+    }
+    @Test fun repeatedHypothesisDoesNotPromoteAnUnstableSuffixToStableText() {
+        val ledger = SegmentLedger(); ledger.start(1)
+        val first = ledger.source(1, "Goedemorgen allemaal", false, 1)!!
+        val repeated = ledger.source(1, "Goedemorgen allemaal", false, 2)!!
+        assertEquals(first.key, repeated.key)
+        assertEquals("", repeated.stableSource)
+    }
     @Test fun endpointReusesSegmentAndRejectsPartialResult() {
         val ledger = SegmentLedger(); ledger.start(1)
         val partial = ledger.source(1, "Hallo wer", false, 1)!!

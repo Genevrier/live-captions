@@ -50,11 +50,18 @@ class SegmentLedger(private val maxCaptions: Int = 150) {
         if (generation != session || text.isBlank()) return null
         val id = active ?: nextId++.also { active = it }
         val old = captions[id]
-        if (old?.source == text.trim() && !endpoint) return old
-        val key = SegmentKey(session, id, (old?.key?.revision ?: -1) + 1)
-        val row = Caption(key, text.trim(), if (endpoint) text.trim() else stable.accept(text),
-            translation = old?.translation ?: "", endpointAtMs = if (endpoint) nowMs else null,
-            translatedRevision = old?.translatedRevision ?: -1,
+        val source = text.trim()
+        if (old?.source == source && !endpoint) return old
+        val stableSource = if (endpoint) source else stable.accept(source)
+        // Raw unstable suffix edits do not invalidate work for an unchanged stable prefix.
+        // Advancing stable text or finalizing an endpoint creates a new revision and clears
+        // its translation so a previous English sentence can never accompany revised Dutch.
+        val advancesRevision = old == null || endpoint || old.stableSource != stableSource
+        val key = if (advancesRevision) SegmentKey(session, id, (old?.key?.revision ?: -1) + 1) else checkNotNull(old).key
+        val row = Caption(key, source, stableSource,
+            translation = if (advancesRevision) "" else checkNotNull(old).translation, endpointAtMs = if (endpoint) nowMs else null,
+            translatedRevision = if (advancesRevision) -1 else checkNotNull(old).translatedRevision,
+            qualityRank = if (advancesRevision) -1 else checkNotNull(old).qualityRank,
             detail = if (endpoint) "Awaiting final translation" else "Live hypothesis")
         captions[id] = row
         if (endpoint) { active = null; stable.reset() }
@@ -69,12 +76,14 @@ class SegmentLedger(private val maxCaptions: Int = 150) {
             detail = if (final && old.corrected) "Revised · Parakeet second hypothesis" else if (final) "Final" else "Provisional")
         return true
     }
-    @Synchronized fun revise(key: SegmentKey, text: String): Caption? {
+    @Synchronized fun reviseTranslated(key: SegmentKey, source: String, translation: String): Caption? {
         val old = captions[key.id] ?: return null
-        if (!current(key) || old.endpointAtMs == null || text.isBlank() || old.source == text) return null
-        val row = old.copy(key = key.copy(revision = key.revision + 1), source = text,
-            stableSource = text, qualityRank = -1, stage = CaptionStage.PROVISIONAL, corrected = true,
-            detail = "Second hypothesis · awaiting revised translation")
+        if (!current(key) || old.endpointAtMs == null || source.isBlank() || translation.isBlank() || old.source == source) return null
+        val revisedKey = key.copy(revision = key.revision + 1)
+        val row = old.copy(key = revisedKey, source = source, stableSource = source,
+            translation = translation, translatedRevision = revisedKey.revision, qualityRank = 2,
+            stage = CaptionStage.REVISED, corrected = true,
+            detail = "Revised · Parakeet second hypothesis")
         captions[key.id] = row
         return row
     }

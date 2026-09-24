@@ -52,7 +52,11 @@ class CaptionViewModel(app: Application) : AndroidViewModel(app) {
         threads = prefs.getInt("threads", 6).coerceIn(1, 8),
         correctionThreads = prefs.getInt("correctionThreads", 4).let { if (it in setOf(2, 4, 6, 8)) it else 4 },
         quality = preferredQuality
-            ?: if (initialMode == PerformanceMode.MAX_QUALITY) TranslationQuality.HY_7B_Q6 else TranslationQuality.HY_Q8,
+            ?: when (initialMode) {
+                PerformanceMode.FAST -> TranslationQuality.HY_7B_Q4
+                PerformanceMode.MAX_QUALITY -> TranslationQuality.HY_7B_Q4
+                PerformanceMode.BALANCED -> TranslationQuality.HY_Q8
+            },
         qnn = if (prefs.getBoolean("qnn.userOverride", false)) prefs.getBoolean("qnn", qnnPreferred) else qnnPreferred,
         gpuTranslation = deviceTune?.get(1)?.let { it == "true" }
             ?: prefs.getBoolean("gpuTranslation", deviceMode == PerformanceMode.MAX_QUALITY && com.asr.live.BuildConfig.OPENCL_ENABLED),
@@ -71,6 +75,7 @@ class CaptionViewModel(app: Application) : AndroidViewModel(app) {
     val lifecycle = CaptionState.lifecycle
     val error = CaptionState.error
     val metrics = CaptionState.metrics
+    val comparisons = CaptionState.comparisons
     val download = ModelRepository.state
     private val _benchmark = MutableStateFlow<List<TranslationBenchmark>>(emptyList())
     val benchmark = _benchmark.asStateFlow()
@@ -199,7 +204,8 @@ class CaptionViewModel(app: Application) : AndroidViewModel(app) {
         if (userChangedQnn) prefs.edit().putBoolean("qnn.userOverride", true).apply()
         if (userChangedCorrection) prefs.edit().putBoolean("correction.userOverride", true).apply()
         prefs.edit().putInt("translationBatch", adjusted.translationBatch).putInt("translationUbatch", adjusted.translationUbatch).apply()
-        if (previous.profile != adjusted.profile || previous.modelId != adjusted.modelId || previous.quality != adjusted.quality || previous.correction != adjusted.correction || previous.qnn != adjusted.qnn) refreshPresence()
+        if (previous.profile != adjusted.profile || previous.modelId != adjusted.modelId || previous.quality != adjusted.quality ||
+            previous.performanceMode != adjusted.performanceMode || previous.correction != adjusted.correction || previous.qnn != adjusted.qnn) refreshPresence()
     }
     fun refreshPresence() {
         val cfg = _config.value
@@ -212,7 +218,7 @@ class CaptionViewModel(app: Application) : AndroidViewModel(app) {
                     runCatching { ModelRepository.translationPresent(cfg.profile.source, cfg.profile.target) }.getOrDefault(false)
                 } else {
                     TranslationModels.present(getApplication(), cfg.quality.bundleId!!) &&
-                        (cfg.profile.fastBundle?.let { TranslationModels.present(getApplication(), it) } ?: true)
+                        (!cfg.opusBenchmarkEnabled || cfg.profile.fastBundle?.let { TranslationModels.present(getApplication(), it) } == true)
                 }
             }
             if (_config.value == cfg) _ready.value = ready
@@ -235,7 +241,7 @@ class CaptionViewModel(app: Application) : AndroidViewModel(app) {
                         ModelRepository.prepareTranslation(getApplication(), info, cfg.profile.source, cfg.profile.target)
                 } else {
                     if (!ModelRepository.downloadBundle(getApplication(), cfg.quality.bundleId!!)) return@launch
-                    cfg.profile.fastBundle?.let { ModelRepository.downloadBundle(getApplication(), it) }
+                    if (cfg.opusBenchmarkEnabled) cfg.profile.fastBundle?.let { ModelRepository.downloadBundle(getApplication(), it) }
                 }
             } catch (e: Exception) {
                 if (e is CancellationException) throw e
@@ -303,7 +309,7 @@ class CaptionViewModel(app: Application) : AndroidViewModel(app) {
         if (cfg.qnn && model().kind == EngineKind.NEMOTRON) bytes += ModelCatalog.NEMOTRON_QNN.archiveBytes
         if (cfg.correction && cfg.profile.correctionSupported) bytes += ModelCatalog.PARAKEET.archiveBytes
         cfg.quality.bundleId?.let { bytes += TranslationModels.bundle(getApplication(), it).size }
-        if (cfg.quality != TranslationQuality.ML_KIT) cfg.profile.fastBundle?.let { bytes += TranslationModels.bundle(getApplication(), it).size }
+        if (cfg.opusBenchmarkEnabled) cfg.profile.fastBundle?.let { bytes += TranslationModels.bundle(getApplication(), it).size }
         return bytes / 1_000_000
     }
     fun toggle() {
@@ -316,5 +322,6 @@ class CaptionViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
     fun clear() = CaptionState.clear()
+    fun rateComparison(key: SegmentKey, vote: TranslationVote) { CaptionState.vote(key, vote) }
     fun dismissError() = CaptionState.setError(null)
 }
