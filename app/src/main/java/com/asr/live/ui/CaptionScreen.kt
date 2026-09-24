@@ -106,7 +106,13 @@ fun CaptionScreen(vm: CaptionViewModel, hasAudioPermission: Boolean, onRequestPe
                 onValueChange = { vm.update(config.copy(glossary = it.take(2000))) },
                 enabled = stopped && !busy, label = { Text("Glossary: source -> target") },
                 placeholder = { Text("晶圆 -> wafer\n套刻 -> overlay\n压印 -> imprint\n母模 -> master\n光刻胶 -> resist") }, minLines = 3)
-            Text("Correction: off")
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Switch(checked = config.correction && config.profile.correctionSupported,
+                    onCheckedChange = { vm.update(config.copy(correction = it)) },
+                    enabled = stopped && !busy && config.profile.correctionSupported && info.kind == EngineKind.NEMOTRON)
+                Text("Parakeet v3 endpoint correction")
+            }
+            Text(if (config.profile.correctionSupported) "Optional second hypothesis; skipped under load. CPU performance is device dependent." else "Parakeet correction is unavailable for Mandarin.", style = MaterialTheme.typography.bodySmall)
             Text("Audio stays in memory and is never uploaded or saved.", style = MaterialTheme.typography.bodySmall)
         }
     })
@@ -115,7 +121,7 @@ fun CaptionScreen(vm: CaptionViewModel, hasAudioPermission: Boolean, onRequestPe
 @Composable
 private fun PerformancePanel(m: Performance) {
     val text = "ASR ${m.asrMs} ms · RTF ${"%.2f".format(m.asrRtf)}\n" +
-        "Translation ${m.translationMs} ms\n" +
+        "Translation ${m.translationMs} ms · correction ${m.correctionMs} ms / RTF ${"%.2f".format(m.correctionRtf)} · skipped ${m.skippedCorrections}\n" +
         "Endpoint → provisional ${m.provisionalLatencyMs?.let { "$it ms" } ?: "—"} · final ${m.finalLatencyMs?.let { "$it ms" } ?: "—"}\n" +
         "Audio queue ${m.audioDepth} · translation ${m.provisionalDepth}+${m.finalDepth}\n" +
         "Capture backlog ${m.backlogMs} ms · dropped audio ${m.droppedAudioMs} ms · skipped translations ${m.skippedTranslations}"

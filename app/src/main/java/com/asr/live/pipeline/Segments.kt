@@ -12,6 +12,7 @@ data class Caption(
     val translatedRevision: Int = -1,
     val qualityRank: Int = -1,
     val detail: String = "",
+    val corrected: Boolean = false,
 )
 
 /** Two consecutive hypotheses must agree on a complete word before translating it. */
@@ -62,11 +63,20 @@ class SegmentLedger(private val maxCaptions: Int = 150) {
     }
     @Synchronized fun translate(key: SegmentKey, text: String, rank: Int, final: Boolean): Boolean {
         val old = captions[key.id] ?: return false
-        if (key.session != session || old.key != key || rank < old.qualityRank || old.stage == CaptionStage.CANCELLED) return false
+        if (key.session != session || old.key != key || rank < old.qualityRank || old.stage in setOf(CaptionStage.CANCELLED, CaptionStage.SKIPPED)) return false
         captions[key.id] = old.copy(translation = text, qualityRank = rank, translatedRevision = key.revision,
-            stage = if (final) CaptionStage.FINAL else CaptionStage.PROVISIONAL,
-            detail = if (final) "Final" else "Provisional")
+            stage = if (final && old.corrected) CaptionStage.REVISED else if (final) CaptionStage.FINAL else CaptionStage.PROVISIONAL,
+            detail = if (final && old.corrected) "Revised · Parakeet second hypothesis" else if (final) "Final" else "Provisional")
         return true
+    }
+    @Synchronized fun revise(key: SegmentKey, text: String): Caption? {
+        val old = captions[key.id] ?: return null
+        if (!current(key) || old.endpointAtMs == null || text.isBlank() || old.source == text) return null
+        val row = old.copy(key = key.copy(revision = key.revision + 1), source = text,
+            stableSource = text, qualityRank = -1, stage = CaptionStage.PROVISIONAL, corrected = true,
+            detail = "Second hypothesis · awaiting revised translation")
+        captions[key.id] = row
+        return row
     }
     @Synchronized fun skip(key: SegmentKey, reason: String) {
         val old = captions[key.id] ?: return
@@ -74,7 +84,7 @@ class SegmentLedger(private val maxCaptions: Int = 150) {
             captions[key.id] = old.copy(stage = CaptionStage.SKIPPED, detail = reason)
     }
     @Synchronized fun current(key: SegmentKey) = key.session == session && captions[key.id]?.key == key &&
-        captions[key.id]?.stage != CaptionStage.CANCELLED
+        captions[key.id]?.stage !in setOf(CaptionStage.CANCELLED, CaptionStage.SKIPPED)
     @Synchronized fun snapshot() = captions.values.toList()
     @Synchronized fun discontinuity(generation: Long) {
         if (generation != session) return

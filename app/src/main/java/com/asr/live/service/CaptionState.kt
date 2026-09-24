@@ -10,6 +10,7 @@ data class Performance(
     val provisionalLatencyMs: Long? = null, val finalLatencyMs: Long? = null,
     val audioDepth: Int = 0, val provisionalDepth: Int = 0, val finalDepth: Int = 0,
     val backlogMs: Long = 0, val droppedAudioMs: Long = 0, val skippedTranslations: Int = 0,
+    val correctionMs: Long = 0, val correctionRtf: Double = 0.0, val skippedCorrections: Int = 0,
     val asr: String = "", val translator: String = "ML Kit", val backend: String = "CPU",
     val profile: String = "Dutch → English", val chunk: String = "560 ms", val threads: Int = 6,
 )
@@ -37,6 +38,7 @@ object CaptionState {
         ledger.source(id, text, endpoint, nowMs)?.also { publish() }
     @Synchronized fun translated(key: SegmentKey, text: String, rank: Int, final: Boolean): Boolean =
         ledger.translate(key, text, rank, final).also { if (it) publish() }
+    @Synchronized fun revise(key: SegmentKey, text: String): Caption? = ledger.revise(key, text)?.also { publish() }
     @Synchronized fun skip(key: SegmentKey, reason: String) { ledger.skip(key, reason); publish() }
     fun current(key: SegmentKey) = ledger.current(key)
     @Synchronized fun discontinuity(id: Long) { ledger.discontinuity(id); publish() }

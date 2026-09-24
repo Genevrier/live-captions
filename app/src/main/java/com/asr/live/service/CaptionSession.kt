@@ -13,6 +13,7 @@ import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
 
 internal data class AudioChunk(val samples: FloatArray, val capturedAt: Long, val sequence: Long)
+internal data class CorrectionRequest(val request: TranslationRequest, val samples: FloatArray)
 internal data class TranslationRequest(val key: SegmentKey, val text: String, val endpointAt: Long? = null)
 
 /** Each native object has a single owning worker. Cancellation never releases an in-use object. */
@@ -26,6 +27,12 @@ class CaptionSession(
     private val audioQueue = BoundedMailbox<AudioChunk>(16)
     private val provisional = BoundedMailbox<TranslationRequest>(1)
     private val finals = BoundedMailbox<TranslationRequest>(6)
+    private val correctionQueue = BoundedMailbox<CorrectionRequest>(1)
+    private val correctionBusy = AtomicBoolean(false)
+    @Volatile private var correctionReady = false
+    @Volatile private var correctionRtf = 0.0
+    private val correctionEnabled = config.correction && config.profile.correctionSupported && config.modelId == ModelCatalog.NEMOTRON.id
+    private val corrector = Thread(::correctLoop, "endpoint-correction")
     private val sequence = AtomicLong()
     @Volatile private var fastTranslator: LocalTranslator? = null
     @Volatile private var finalTranslator: LocalTranslator? = null
@@ -47,14 +54,14 @@ class CaptionSession(
     private val asr = Thread(::recognize, "recognition")
     private val fast = Thread({ translateLoop(false) }, "provisional-translation")
     private val final = Thread({ translateLoop(true) }, "final-translation")
-    fun start() { fast.start(); final.start(); asr.start() }
+    fun start() { fast.start(); final.start(); corrector.start(); asr.start() }
     fun cancel() {
         active.set(false); capture.cancel()
         fastTranslator?.cancel(); finalTranslator?.cancel()
-        audioQueue.close(); provisional.close(); finals.close()
-        asr.interrupt(); fast.interrupt(); final.interrupt()
+        audioQueue.close(); provisional.close(); finals.close(); correctionQueue.close().forEach { it.samples.fill(0f) }
+        asr.interrupt(); fast.interrupt(); final.interrupt(); corrector.interrupt()
     }
-    fun join() { asr.join(); capture.join(); fast.join(); final.join() }
+    fun join() { asr.join(); capture.join(); fast.join(); final.join(); corrector.join() }
     private fun fail(message: String) {
         if (active.compareAndSet(true, false)) { onFailure(message); cancel() }
     }
@@ -111,8 +118,48 @@ class CaptionSession(
         lastProvisionalText = ""
         // Endpoint translation also gets a fast pass. A final result has a higher rank.
         if (fastEnabled) provisional.offer(TranslationRequest(row.key, text, at))
-        enqueueFinal(TranslationRequest(row.key, text, at))
+        val request = TranslationRequest(row.key, text, at)
+        val admitted = correctionEnabled && correctionReady && audio != null &&
+            CorrectionPolicy.admit(config.profile, audio.size, audioQueue.size(), finals.size(), correctionBusy.get(), correctionRtf) &&
+            correctionBusy.compareAndSet(false, true)
+        enqueueFinal(request)
+        if (admitted) correctionQueue.offer(CorrectionRequest(request, audio!!))
+        else {
+            audio?.fill(0f)
+            if (correctionEnabled) CaptionState.metrics(generation) { it.copy(skippedCorrections = it.skippedCorrections + 1) }
+        }
         depths()
+    }
+    private fun correctLoop() {
+        if (!correctionEnabled) return
+        var engine: com.asr.live.asr.EndpointCorrector? = null
+        try {
+            ModelStore.verify(ctx, ModelCatalog.PARAKEET)
+            if (!active.get()) return
+            engine = com.asr.live.asr.EndpointCorrector(ModelStore.dir(ctx, ModelCatalog.PARAKEET.id))
+            correctionReady = true
+            while (active.get()) {
+                val job = correctionQueue.poll()
+                if (job == null) { Thread.sleep(20); continue }
+                try {
+                    if (!CaptionState.current(job.request.key)) continue
+                    val started = now()
+                    val candidate = engine.decode(job.samples)
+                    val elapsed = now() - started
+                    correctionRtf = elapsed.toDouble() / maxOf(1, job.samples.size / 16)
+                    CaptionState.metrics(generation) { it.copy(correctionMs = elapsed, correctionRtf = correctionRtf) }
+                    if (active.get() && finals.size() == 0 && CorrectionPolicy.accept(job.request.text, candidate,
+                            now() - (job.request.endpointAt ?: started), audioQueue.size())) {
+                        CaptionState.revise(job.request.key, candidate)?.let {
+                            enqueueFinal(job.request.copy(key = it.key, text = candidate)); depths()
+                        }
+                    } else CaptionState.metrics(generation) { it.copy(skippedCorrections = it.skippedCorrections + 1) }
+                } finally { job.samples.fill(0f); correctionBusy.set(false) }
+            }
+        } catch (_: InterruptedException) {
+        } catch (t: Throwable) {
+            if (active.get()) CaptionState.error(generation, "Optional correction disabled: ${t.message}")
+        } finally { correctionReady = false; engine?.close() }
     }
     private fun enqueueFinal(request: TranslationRequest) {
         finals.offer(request)?.let {

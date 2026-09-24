@@ -89,17 +89,13 @@ object ModelCatalog {
     )
 
     val PARAKEET = ModelInfo(
-        id = "parakeet-tdt-0.6b-en",
-        displayName = "NVIDIA Parakeet TDT 0.6B",
-        shortName = "Accuracy",
-        tagline = "Highest-accuracy English (OpenASR leader), ~1s delay",
-        kind = EngineKind.OFFLINE_PARAKEET,
-        url = REL + "sherpa-onnx-nemo-parakeet-tdt-0.6b-v2-int8.tar.bz2",
-        approxMB = 460,
-        encoder = "encoder.int8.onnx",
-        decoder = "decoder.int8.onnx",
-        joiner = "joiner.int8.onnx",
-        encoderMinBytes = 400_000_000L, // ~652 MB expected
+        id = "parakeet-tdt-0.6b-v3-int8", displayName = "Parakeet TDT 0.6B v3",
+        shortName = "Parakeet v3", tagline = "Optional endpoint second hypothesis · CPU",
+        kind = EngineKind.OFFLINE_PARAKEET, languages = setOf("nl", "en"),
+        url = REL + "sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8.tar.bz2",
+        approxMB = 487, archiveBytes = 487170055,
+        sha256 = "5793d0fd397c5778d2cf2126994d58e9d56b1be7c04d13c7a15bb1b4eafb16bf",
+        encoder = "encoder.int8.onnx", decoder = "decoder.int8.onnx", joiner = "joiner.int8.onnx",
     )
 
     val WHISPER_BASE = ModelInfo(
@@ -140,5 +136,5 @@ object ModelCatalog {
     val ALL = listOf(NEMOTRON, WHISPER_BASE)
     val DEFAULT = NEMOTRON
 
-    fun byId(id: String?): ModelInfo? = ALL.firstOrNull { it.id == id }
+    fun byId(id: String?): ModelInfo? = (ALL + PARAKEET).firstOrNull { it.id == id }
 }

@@ -11,3 +11,14 @@ The source of truth for translation download URLs, exact file sizes and SHA-256 
 The shared C++ translation core has executed local smoke tests for Dutch → English, Chinese → English with a wafer/overlay glossary, and English → French. Repeated OPUS calls test cache reset; cancellation is tested before new inference. These host results are not physical Honor phone measurements. `scripts/native_smoke.py` repeats the tests with pinned downloads. `scripts/verify_apk.py` checks ELF ABI and 16 KB alignment; CI separately checks APK ZIP alignment and signature.
 
 Sources: https://github.com/k2-fsa/sherpa-onnx/releases/tag/v1.13.8 ; https://huggingface.co/tencent/Hy-MT2-1.8B-GGUF ; https://huggingface.co/Xenova/opus-mt-nl-en ; https://huggingface.co/Helsinki-NLP/opus-mt-nl-en ; https://github.com/ggml-org/llama.cpp ; https://github.com/google/sentencepiece
+
+## Optional second hypothesis
+
+Parakeet TDT 0.6B v3 INT8 uses the sherpa ASR release archive pinned in
+ModelCatalog, SHA-256 `5793d0fd397c5778d2cf2126994d58e9d56b1be7c04d13c7a15bb1b4eafb16bf`.
+The [upstream model card](https://huggingface.co/nvidia/parakeet-tdt-0.6b-v3)
+licenses the model CC-BY-4.0 and includes Dutch and English among its languages;
+Mandarin is excluded. Only NL/EN endpoint correction is exposed. Local host
+execution passed; runtime admission limits optional work to one utterance,
+RTF <= 0.5, no queued final translations and <=100 ms audio queue. Results over
+3 seconds late are rejected. This is not phone benchmarking or guaranteed accuracy.
