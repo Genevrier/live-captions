@@ -30,6 +30,34 @@
       ]
     },
     {
+      "id": "hymt2-7b-Q5_K_M",
+      "label": "Hy-MT2 7B Q5_K_M (community quantization)",
+      "license": "Apache-2.0",
+      "revision": "9825e696e37ee79d00f5c41dbdae8098ed35ef3d",
+      "files": [
+        {
+          "path": "model.gguf",
+          "url": "https://huggingface.co/mradermacher/Hy-MT2-7B-GGUF/resolve/9825e696e37ee79d00f5c41dbdae8098ed35ef3d/Hy-MT2-7B.Q5_K_M.gguf",
+          "size": 5371235904,
+          "sha256": "ee312afaec367f75eeeea04021ec6fc33a08ac65a67a38e559354e0bae30a00c"
+        }
+      ]
+    },
+    {
+      "id": "hymt2-7b-Q8_0",
+      "label": "Hy-MT2 7B Q8_0 reference",
+      "license": "Apache-2.0",
+      "revision": "ab8472660ac61fac25f1af43fac2599d52a8a775",
+      "files": [
+        {
+          "path": "model.gguf",
+          "url": "https://huggingface.co/tencent/Hy-MT2-7B-GGUF/resolve/ab8472660ac61fac25f1af43fac2599d52a8a775/HY-MT2-7B-Q8_0.gguf",
+          "size": 7981928896,
+          "sha256": "58b3ad55dd6f6fa08c695cddc34fb5f8f708a844f78ae10508071914b0ed67c0"
+        }
+      ]
+    },
+    {
       "id": "hymt2-Q8_0",
       "label": "Hy-MT2 1.8B Q8_0",
       "license": "Apache-2.0",

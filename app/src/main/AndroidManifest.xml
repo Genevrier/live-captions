@@ -22,6 +22,8 @@
         android:theme="@style/Theme.AsrApp">
 
         <uses-native-library android:name="libcdsprpc.so" android:required="false" />
+        <!-- The Khronos ICD dispatch layer loads the optional device OpenCL driver. -->
+        <uses-native-library android:name="libOpenCL.so" android:required="false" />
 
         <activity
             android:name=".MainActivity"

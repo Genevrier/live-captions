@@ -7,6 +7,7 @@ import kotlinx.coroutines.flow.asStateFlow
 enum class ListeningState { STOPPED, STARTING, LISTENING, STOPPING }
 data class Performance(
     val asrMs: Long = 0, val asrRtf: Double = 0.0, val translationMs: Long = 0,
+    val translationPrefillMs: Long = 0, val translationDecodeMs: Long = 0,
     val provisionalLatencyMs: Long? = null, val finalLatencyMs: Long? = null,
     val audioDepth: Int = 0, val provisionalDepth: Int = 0, val finalDepth: Int = 0,
     val captionBacklogMs: Long = 0,
@@ -16,6 +17,9 @@ data class Performance(
     val javaHeapKb: Long = 0, val availableKb: Long = 0, val estimatedModelsKb: Long = 0,
     val performanceMode: String = "Balanced",
     val asr: String = "", val translator: String = "ML Kit", val backend: String = "CPU",
+    val correctionThreads: Int = 4,
+    val translationBackend: String = "CPU", val thermalStatus: String = "Unknown",
+    val adpfActive: Boolean = false,
     val profile: String = "Dutch → English", val chunk: String = "560 ms", val threads: Int = 6,
 )
 object CaptionState {
@@ -36,7 +40,10 @@ object CaptionState {
     @Synchronized fun begin(id: Long, config: SessionConfig, modelName: String) {
         generation = id; ledger.start(id); publish()
         _metrics.value = Performance(asr = modelName, translator = config.quality.label, profile = config.profile.label, threads = config.threads,
-            performanceMode = config.performanceMode.label,
+            performanceMode = config.performanceMode.label, correctionThreads = config.correctionThreads,
+            backend = if (config.qnn) "QNN initializing · experimental" else "CPU",
+            translationBackend = if (config.gpuTranslation && com.asr.live.BuildConfig.OPENCL_ENABLED)
+                "Adreno OpenCL requested · initializing" else "CPU",
             chunk = com.asr.live.model.ModelCatalog.byId(config.modelId)?.chunkMs?.let { "$it ms" } ?: "VAD phrases")
         _error.value = null; setLifecycle(ListeningState.STARTING)
     }

@@ -1,0 +1,14 @@
+OpenCL Android runtime component
+
+The APK statically links the Khronos OpenCL ICD dispatch layer into
+liblive-translator.so. It is built from KhronosGroup/OpenCL-ICD-Loader at
+revision 5192c84f8059e5f703e5452929b613f9487f6e4c (Apache-2.0). The headers
+come from KhronosGroup/OpenCL-Headers at revision
+e6060189f4ebe8b52d885c37af71b9a50c272154 (Apache-2.0).
+
+These components provide OpenCL API dispatch and headers only. They do not
+contain a Qualcomm GPU driver. OpenCL use requires an Android-exposed vendor
+ICD that enumerates the Adreno 830. If that is unavailable, translation stays
+on CPU.
+
+License text: https://www.apache.org/licenses/LICENSE-2.0

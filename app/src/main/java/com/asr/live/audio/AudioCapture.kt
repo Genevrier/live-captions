@@ -12,6 +12,11 @@ class AudioCapture(
     private val onStarted: () -> Unit,
     private val onError: (Throwable) -> Unit,
 ) {
+    companion object {
+        const val SAMPLE_RATE = 16000
+        const val CHUNK_SAMPLES = 1600
+        const val CHUNK_DURATION_MS = CHUNK_SAMPLES * 1000L / SAMPLE_RATE
+    }
     private val active = AtomicBoolean(true)
     private var worker: Thread? = null
     fun start() { worker = Thread(::loop, "microphone").also { it.start() } }
@@ -22,9 +27,9 @@ class AudioCapture(
         var recorder: AudioRecord? = null
         try {
             if (!active.get()) return
-            val minimum = AudioRecord.getMinBufferSize(16000, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT)
+            val minimum = AudioRecord.getMinBufferSize(SAMPLE_RATE, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT)
             check(minimum > 0) { "16 kHz microphone capture unavailable" }
-            recorder = AudioRecord(MediaRecorder.AudioSource.VOICE_RECOGNITION, 16000,
+            recorder = AudioRecord(MediaRecorder.AudioSource.VOICE_RECOGNITION, SAMPLE_RATE,
                 AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT, maxOf(minimum, 32000))
             check(recorder.state == AudioRecord.STATE_INITIALIZED) { "Microphone initialization failed" }
             val manager = context.getSystemService(AudioManager::class.java)
@@ -36,7 +41,7 @@ class AudioCapture(
             recorder.startRecording()
             check(recorder.recordingState == AudioRecord.RECORDSTATE_RECORDING) { "Microphone did not start" }
             onStarted()
-            val pcm = ShortArray(1600)
+            val pcm = ShortArray(CHUNK_SAMPLES)
             var filled = 0
             while (active.get()) {
                 val count = recorder.read(pcm, filled, pcm.size - filled, AudioRecord.READ_NON_BLOCKING)

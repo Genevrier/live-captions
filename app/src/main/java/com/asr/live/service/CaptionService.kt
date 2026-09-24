@@ -51,7 +51,8 @@ class CaptionService : Service() {
                 if (CaptionState.running.value) {
                     val memory = withContext(Dispatchers.IO) { MemoryUsage.sample(this@CaptionService) }
                     CaptionState.metrics(generation) { it.copy(appPssKb = memory.appPssKb, rssKb = memory.rssKb,
-                        nativeHeapKb = memory.nativeHeapKb, javaHeapKb = memory.javaHeapKb, availableKb = memory.availableKb) }
+                        nativeHeapKb = memory.nativeHeapKb, javaHeapKb = memory.javaHeapKb, availableKb = memory.availableKb,
+                        thermalStatus = memory.thermalStatus) }
                     // Recheck permission and lock-screen visibility even during a silent phrase.
                     overlay.render(CaptionState.lines.value, CaptionState.lifecycle.value,
                         if (CaptionState.metrics.value.profile == Profile.ENGLISH_FRENCH.label) "French" else "English")
@@ -92,8 +93,12 @@ class CaptionService : Service() {
             performanceMode = PerformanceMode.entries.firstOrNull { it.name == intent.getStringExtra("performanceMode") } ?: PerformanceMode.BALANCED,
             modelId = intent.getStringExtra("model") ?: ModelCatalog.DEFAULT.id,
             threads = intent.getIntExtra("threads", 6).coerceIn(1, 8),
+            correctionThreads = intent.getIntExtra("correctionThreads", 4).let { if (it in setOf(2, 4, 6, 8)) it else 4 },
             quality = TranslationQuality.entries.firstOrNull { it.name == intent.getStringExtra("quality") } ?: TranslationQuality.HY_Q8,
             qnn = intent.getBooleanExtra("qnn", false),
+            gpuTranslation = intent.getBooleanExtra("gpuTranslation", com.asr.live.BuildConfig.OPENCL_ENABLED),
+            translationBatch = intent.getIntExtra("translationBatch", 256).let { if (it in setOf(128, 256, 512)) it else 256 },
+            translationUbatch = intent.getIntExtra("translationUbatch", 128).let { if (it in setOf(64, 128, 256)) it else 128 },
             correction = intent.getBooleanExtra("correction", false),
             glossary = intent.getStringExtra("glossary") ?: "",
         )
@@ -183,7 +188,9 @@ class CaptionService : Service() {
         fun start(ctx: Context, config: SessionConfig) {
             ContextCompat.startForegroundService(ctx, Intent(ctx, CaptionService::class.java)
                 .putExtra("profile", config.profile.name).putExtra("performanceMode", config.performanceMode.name).putExtra("model", config.modelId)
-                .putExtra("threads", config.threads).putExtra("quality", config.quality.name)
+                .putExtra("threads", config.threads).putExtra("correctionThreads", config.correctionThreads)
+                .putExtra("gpuTranslation", config.gpuTranslation).putExtra("quality", config.quality.name)
+                .putExtra("translationBatch", config.translationBatch).putExtra("translationUbatch", config.translationUbatch)
                 .putExtra("qnn", config.qnn).putExtra("correction", config.correction).putExtra("glossary", config.glossary))
         }
         fun stop(ctx: Context) { ctx.startService(Intent(ctx, CaptionService::class.java).setAction(ACTION_STOP)) }

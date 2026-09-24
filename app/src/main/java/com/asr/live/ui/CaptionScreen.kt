@@ -136,17 +136,25 @@ fun CaptionScreen(vm: CaptionViewModel, hasAudioPermission: Boolean, onRequestPe
                     Text((if (mode == config.performanceMode) "✓ " else "") + mode.label)
                 }
             }
-            Text("Max quality uses the official 7B Q6 translator on CPU. QNN and GPU are experimental and require on-device validation. Model size alone does not prove accuracy or real-time performance.", style = MaterialTheme.typography.bodySmall)
+            Text("Max quality keeps the official 7B Q6 translator resident and attempts Adreno 830 OpenCL when the compiled runtime detects that GPU; otherwise it reports CPU fallback. QNN and OpenCL are experimental until tested on this phone. Model size alone does not prove accuracy or real-time performance.", style = MaterialTheme.typography.bodySmall)
             Text("Recognition model")
             vm.models().forEach { model -> TextButton(onClick = { vm.update(config.copy(modelId = model.id)) }, enabled = stopped && !busy) { Text((if (model.kind == info.kind) "✓ " else "") + model.displayName) } }
             Text("ASR backend")
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Switch(checked = config.qnn, onCheckedChange = { vm.update(config.copy(qnn = it)) },
+                Switch(checked = config.qnn, onCheckedChange = { vm.update(config.copy(qnn = it), userChangedQnn = true) },
                     enabled = stopped && !busy && info.kind == EngineKind.NEMOTRON &&
                         android.os.Build.VERSION.SDK_INT >= 31 && BackendPolicy.qnnEligible(android.os.Build.SOC_MODEL, com.asr.live.BuildConfig.QNN_ENABLED))
                 Text("QNN/NPU · experimental SM8750")
             }
             Text("CPU fallback is always downloaded. QNN has not been tested on this Honor phone.", style = MaterialTheme.typography.bodySmall)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Switch(checked = config.gpuTranslation, onCheckedChange = { vm.update(config.copy(gpuTranslation = it)) },
+                    enabled = stopped && !busy && com.asr.live.BuildConfig.OPENCL_ENABLED)
+                Text("Prefer Adreno 830 OpenCL translation")
+            }
+            Text(if (com.asr.live.BuildConfig.OPENCL_ENABLED)
+                "The app probes for an Adreno 830 through the Qualcomm vendor ICD. The visible backend changes only after the Hy-MT2 model loads; unavailable or failed OpenCL returns to CPU."
+                else "This build has no OpenCL backend. Hy-MT2 runs on CPU.", style = MaterialTheme.typography.bodySmall)
             if (info.kind == EngineKind.NEMOTRON) {
                 Text("Nemotron model chunk")
                 ModelCatalog.chunkProfiles(config.qnn).forEach { model ->
@@ -167,6 +175,12 @@ fun CaptionScreen(vm: CaptionViewModel, hasAudioPermission: Boolean, onRequestPe
             }
             Text("CPU threads: ${config.threads}")
             Slider(value = config.threads.toFloat(), onValueChange = { vm.update(config.copy(threads = it.toInt())) }, valueRange = 1f..8f, steps = 6, enabled = stopped && !busy)
+            if (config.correction && config.profile.correctionSupported) {
+                Text("Parakeet endpoint threads: ${config.correctionThreads} (2 / 4 / 6 / 8)")
+                Slider(value = ((config.correctionThreads - 2) / 2).toFloat(),
+                    onValueChange = { vm.update(config.copy(correctionThreads = 2 + it.toInt() * 2)) },
+                    valueRange = 0f..3f, steps = 2, enabled = stopped && !busy)
+            }
             Text("Translation quality")
             TranslationQuality.entries.forEach { quality -> TextButton(onClick = { vm.update(config.copy(quality = quality)) }, enabled = stopped && !busy) { Text((if (quality == config.quality) "✓ " else "") + quality.label) } }
             if (config.quality != TranslationQuality.ML_KIT) OutlinedTextField(value = config.glossary,
@@ -175,17 +189,18 @@ fun CaptionScreen(vm: CaptionViewModel, hasAudioPermission: Boolean, onRequestPe
                 placeholder = { Text("晶圆 -> wafer\n套刻 -> overlay\n压印 -> imprint\n母模 -> master\n光刻胶 -> resist") }, minLines = 3)
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Switch(checked = config.correction && config.profile.correctionSupported,
-                    onCheckedChange = { vm.update(config.copy(correction = it)) },
+                    onCheckedChange = { vm.update(config.copy(correction = it), userChangedCorrection = true) },
                     enabled = stopped && !busy && config.profile.correctionSupported && info.kind == EngineKind.NEMOTRON)
                 Text("Parakeet v3 endpoint correction")
             }
             Text(if (config.profile.correctionSupported) "Optional second hypothesis; skipped under load. CPU performance is device dependent." else "Parakeet correction is unavailable for Mandarin.", style = MaterialTheme.typography.bodySmall)
             HorizontalDivider(Modifier.padding(vertical = 12.dp))
-            Text("Translation A/B benchmark", style = MaterialTheme.typography.titleMedium)
-            Text("Runs installed 1.8B Q8, 7B Q4 and 7B Q6 sequentially. Compare output against a human reference; host or phone timing alone does not establish translation accuracy.", style = MaterialTheme.typography.bodySmall)
-            OutlinedTextField(benchmarkText, { benchmarkText = it.take(1000) }, label = { Text("Source sentence") }, enabled = stopped && !benchmarkBusy)
-            TextButton(onClick = { vm.benchmarkTranslation(benchmarkText) }, enabled = stopped && !busy && !benchmarkBusy) { Text(if (benchmarkBusy) "Benchmarking…" else "Run A/B translation") }
-            benchmark.forEach { result -> Text("${result.model}: ${result.error ?: "${result.elapsedMs} ms · RSS ${result.rssMiB} MiB · available ${result.availableMiB} MiB · ${result.output}"}", style = MaterialTheme.typography.bodySmall) }
+            Text("On-device translation autotune / A-B", style = MaterialTheme.typography.titleMedium)
+            Text("Runs installed Hy-MT2 7B Q4_K_M, Q5_K_M, Q6_K and Q8_0 (reference) with CPU and Adreno OpenCL, warms the model, then repeats your sentence five times. Q4_0 is unavailable because no verified Hy-MT2 7B asset is pinned. It stores the fastest exact-match configuration against the Q6 CPU output for this device. Test representative sentences; this consistency gate is not a translation-quality score or sustained-load test.", style = MaterialTheme.typography.bodySmall)
+            OutlinedTextField(benchmarkText, { benchmarkText = it.take(1000) }, label = { Text("Source sentences, one per line") },
+                placeholder = { Text("Run several representative sentences for safer tuning") }, minLines = 2, enabled = stopped && !benchmarkBusy)
+            TextButton(onClick = { vm.benchmarkTranslation(benchmarkText) }, enabled = stopped && !busy && !benchmarkBusy) { Text(if (benchmarkBusy) "Warming / benchmarking…" else "Run on-device autotune") }
+            benchmark.forEach { result -> Text("${result.model} · ${if (result.requestedOpenCl) "OpenCL requested" else "CPU requested"}: ${result.error ?: "${result.backend} · load ${result.loadMs} ms · avg ${result.elapsedMs} / p95 ${result.p95Ms} ms · prefill ${result.prefillMs} / decode ${result.decodeMs} ms · batch ${result.batch}/${result.ubatch} · ${if (result.qualityMatched == true) "matches Q6 CPU" else "different from Q6 CPU"} · PSS ${result.rssMiB} MiB · available ${result.availableMiB} MiB\n${result.output}"}", style = MaterialTheme.typography.bodySmall) }
             Text("Audio stays in memory and is never uploaded or saved.", style = MaterialTheme.typography.bodySmall)
         }
     })
@@ -218,13 +233,15 @@ fun CaptionScreen(vm: CaptionViewModel, hasAudioPermission: Boolean, onRequestPe
 @Composable
 private fun PerformancePanel(m: Performance) {
     val text = "${m.performanceMode} · ${m.profile}\nASR: ${m.asr.ifBlank { "Not running" }} · ${m.backend} · chunk ${m.chunk}\n" +
-        "Translator: ${m.translator}\nASR ${m.asrMs} ms · RTF ${"%.2f".format(m.asrRtf)}\n" +
-        "Translation ${m.translationMs} ms · correction ${m.correctionMs} ms / RTF ${"%.2f".format(m.correctionRtf)} · skipped ${m.skippedCorrections}\n" +
+        "Translator: ${m.translator} · ${m.translationBackend}\nASR ${m.asrMs} ms · RTF ${"%.2f".format(m.asrRtf)}\n" +
+        "Translation ${m.translationMs} ms · prefill ${m.translationPrefillMs} · decode ${m.translationDecodeMs} ms\n" +
+        "Correction ${m.correctionMs} ms / RTF ${"%.2f".format(m.correctionRtf)} · ${m.correctionThreads} threads · skipped ${m.skippedCorrections}\n" +
         "Endpoint → provisional ${m.provisionalLatencyMs?.let { "$it ms" } ?: "—"} · final ${m.finalLatencyMs?.let { "$it ms" } ?: "—"}\n" +
         "Audio queue ${m.audioDepth} · translation ${m.provisionalDepth}+${m.finalDepth}\n" +
         "Caption backlog ${m.captionBacklogMs} ms · capture backlog ${m.backlogMs} ms\nDropped audio ${m.droppedAudioMs} ms · skipped translations ${m.skippedTranslations}\n" +
         "App RAM ${m.appPssKb / 1024} MiB PSS · process RSS ${m.rssKb / 1024} MiB\n" +
         "Native heap ${m.nativeHeapKb / 1024} MiB · Java heap ${m.javaHeapKb / 1024} MiB\n" +
-        "Loaded model files ≈ ${m.estimatedModelsKb / 1024} MiB · system available ${m.availableKb / 1024} MiB · sampled every 5 s"
+        "Loaded model files ≈ ${m.estimatedModelsKb / 1024} MiB · system available ${m.availableKb / 1024} MiB · thermal ${m.thermalStatus}\n" +
+        "ADPF work-duration hints ${if (m.adpfActive) "active" else "unavailable"} · sampled every 5 s"
     Text(text, style = MaterialTheme.typography.bodySmall, modifier = Modifier.fillMaxWidth().heightIn(max = 220.dp).verticalScroll(rememberScrollState()).padding(bottom = 8.dp))
 }

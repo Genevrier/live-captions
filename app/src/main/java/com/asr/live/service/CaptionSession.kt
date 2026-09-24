@@ -9,6 +9,8 @@ import com.asr.live.i18n.LocalTranslator
 import com.asr.live.i18n.NativeTranslator
 import com.asr.live.model.*
 import com.asr.live.pipeline.*
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
 
@@ -38,6 +40,7 @@ class CaptionSession(
     @Volatile private var fastTranslator: LocalTranslator? = null
     @Volatile private var finalTranslator: LocalTranslator? = null
     private val fastEnabled = config.quality == TranslationQuality.ML_KIT || config.profile.fastBundle != null
+    private val workersReady = CountDownLatch(1 + (if (fastEnabled) 1 else 0) + (if (correctionEnabled) 1 else 0))
     private val pcm = PcmBuffer()
     private var lastProvisionalAt = 0L
     private var lastProvisionalText = ""
@@ -68,6 +71,11 @@ class CaptionSession(
     }
     private fun recognize() {
         var engine: com.asr.live.asr.AsrEngine? = null
+        // AudioCapture sends one 100 ms (1600 samples at 16 kHz) unit per
+        // worker iteration. Nemotron's model chunk profile is not the ADPF
+        // workload duration: it can contain several microphone callbacks.
+        val performanceHint = WorkerPerformanceHint(ctx, AudioCapture.CHUNK_DURATION_MS)
+        CaptionState.metrics(generation) { it.copy(adpfActive = performanceHint.enabled) }
         val continuity = AudioContinuity()
         var qnnFailed = false
         var audioMs = 0L
@@ -83,6 +91,8 @@ class CaptionSession(
                     { pcm.invalidate(); CaptionState.discontinuity(generation) })
             else EngineFactory.create(ctx, info, config.profile.source, "transcribe", ::partial, ::endpoint, config.threads)
             engine = create()
+            if (!active.get()) return
+            while (active.get() && !workersReady.await(250, TimeUnit.MILLISECONDS)) { }
             if (!active.get()) return
             capture.start()
             while (active.get()) {
@@ -102,6 +112,7 @@ class CaptionSession(
                 val start = now()
                 checkNotNull(engine).accept(chunk.samples)
                 val duration = now() - start
+                performanceHint.report(duration)
                 computeMs += duration; audioMs += chunk.samples.size / 16
                 CaptionState.metrics(generation) { it.copy(asrMs = duration,
                     asrRtf = computeMs.toDouble() / maxOf(1, audioMs), audioDepth = audioQueue.size(),
@@ -109,7 +120,7 @@ class CaptionSession(
             }
         } catch (_: InterruptedException) {
         } catch (t: Throwable) { if (active.get()) fail("Recognition: ${t.message}") }
-        finally { engine?.release(); capture.cancel(); pcm.take() }
+        finally { performanceHint.close(); engine?.release(); capture.cancel(); pcm.take() }
     }
     private fun partial(text: String) {
         if (!active.get() || text.isBlank()) return
@@ -143,10 +154,12 @@ class CaptionSession(
     private fun correctLoop() {
         if (!correctionEnabled) return
         var engine: com.asr.live.asr.EndpointCorrector? = null
+        val performanceHint = WorkerPerformanceHint(ctx, 1500)
         try {
             ModelStore.verify(ctx, ModelCatalog.PARAKEET)
             if (!active.get()) return
-            engine = com.asr.live.asr.EndpointCorrector(ModelStore.dir(ctx, ModelCatalog.PARAKEET.id))
+            engine = com.asr.live.asr.EndpointCorrector(ModelStore.dir(ctx, ModelCatalog.PARAKEET.id), config.correctionThreads)
+            engine.warmUp()
             correctionReady = true
             while (active.get()) {
                 val job = correctionQueue.poll()
@@ -156,6 +169,7 @@ class CaptionSession(
                     val started = now()
                     val candidate = engine.decode(job.samples)
                     val elapsed = now() - started
+                    performanceHint.report(elapsed)
                     correctionRtf = elapsed.toDouble() / maxOf(1, job.samples.size / 16)
                     CaptionState.metrics(generation) { it.copy(correctionMs = elapsed, correctionRtf = correctionRtf) }
                     if (active.get() && finals.size() == 0 && CorrectionPolicy.accept(job.request.text, candidate,
@@ -169,7 +183,7 @@ class CaptionSession(
         } catch (_: InterruptedException) {
         } catch (t: Throwable) {
             if (active.get()) CaptionState.error(generation, "Optional correction disabled: ${t.message}")
-        } finally { correctionReady = false; engine?.close() }
+        } finally { workersReady.countDown(); performanceHint.close(); correctionReady = false; engine?.close() }
     }
     private fun enqueueFinal(request: TranslationRequest) {
         finals.offer(request)?.let {
@@ -180,10 +194,6 @@ class CaptionSession(
     private fun createTranslator(isFinal: Boolean): LocalTranslator {
         if (config.quality == TranslationQuality.ML_KIT) return MlKitTranslator(config.profile.source, config.profile.target)
         val bundle = if (isFinal) config.quality.bundleId!! else checkNotNull(config.profile.fastBundle)
-        val modelBytes = TranslationModels.bundle(ctx, bundle).size
-        val asrBytes = ModelStore.dir(ctx, info.id).walkTopDown().filter { it.isFile }.sumOf { it.length() }
-        if (isFinal && modelBytes > 3_000_000_000L && !MemoryUsage.canLoad(ctx, modelBytes + asrBytes))
-            error("Not enough available RAM for ${config.quality.label} with 2 GiB system headroom; choose a smaller translation model")
         val directory = TranslationModels.verify(ctx, bundle)
         val modelIds = listOfNotNull(info.id, bundle, config.profile.fastBundle,
             if (correctionEnabled) ModelCatalog.PARAKEET.id else null,
@@ -192,16 +202,30 @@ class CaptionSession(
             ModelStore.dir(ctx, id).walkTopDown().filter { it.isFile }.sumOf { it.length() }
         }
         CaptionState.metrics(generation) { it.copy(estimatedModelsKb = estimatedFiles / 1024) }
+        val maxModelBudget = 11L * 1024 * 1024 * 1024
+        if (isFinal && estimatedFiles > maxModelBudget)
+            error("Selected resident models exceed the 11 GiB Max Quality budget")
+        if (isFinal && modelBytesFor(bundle) > 3_000_000_000L && !MemoryUsage.canLoad(ctx, estimatedFiles))
+            error("Not enough available RAM to keep selected models resident with 2 GiB system headroom")
+        val preferOpenCl = isFinal && config.gpuTranslation && com.asr.live.BuildConfig.OPENCL_ENABLED && config.quality != TranslationQuality.ML_KIT
         return NativeTranslator(if (isFinal) java.io.File(directory, "model.gguf") else directory,
-            if (isFinal) minOf(config.threads, 4) else 2, !isFinal, config.profile, config.glossary)
+            if (isFinal) minOf(config.threads, 4) else 2, !isFinal, config.profile, config.glossary,
+            preferOpenCl, ctx.getDir("llama-opencl-cache", Context.MODE_PRIVATE),
+            config.translationBatch, config.translationUbatch)
     }
+    private fun modelBytesFor(id: String) = TranslationModels.bundle(ctx, id).size
     private fun translateLoop(isFinal: Boolean) {
         if (!isFinal && !fastEnabled) return
         var translator: LocalTranslator? = null
+        val performanceHint = WorkerPerformanceHint(ctx, 750)
         val queue = if (isFinal) finals else provisional
         try {
-            translator = createTranslator(isFinal)
-            if (isFinal) finalTranslator = translator else fastTranslator = translator
+            val engine = createTranslator(isFinal)
+            translator = engine
+            if (isFinal) finalTranslator = engine else fastTranslator = engine
+            engine.warmUp()
+            if (isFinal) CaptionState.metrics(generation) { it.copy(translationBackend = engine.backend) }
+            workersReady.countDown()
             while (active.get()) {
                 val request = queue.poll()
                 if (request == null) { Thread.sleep(20); continue }
@@ -214,11 +238,15 @@ class CaptionSession(
                 val started = now()
                 if (isFinal) activeFinalEndpoint = request.endpointAt
                 try {
-                    val result = translator.translate(request.text)
+                    val result = engine.translate(request.text)
                     if (!active.get()) break
                     val accepted = CaptionState.translated(request.key, result, if (isFinal) 2 else 0, isFinal)
                     val elapsed = now() - started
+                    performanceHint.report(elapsed)
+                    val timings = engine.timings
                     CaptionState.metrics(generation) { m -> m.copy(translationMs = elapsed,
+                        translationPrefillMs = timings.prefillMs, translationDecodeMs = timings.decodeMs,
+                        translationBackend = if (isFinal) engine.backend else m.translationBackend,
                         provisionalLatencyMs = if (accepted && !isFinal && request.endpointAt != null) now() - request.endpointAt else m.provisionalLatencyMs,
                         finalLatencyMs = if (accepted && isFinal && request.endpointAt != null) now() - request.endpointAt else m.finalLatencyMs) }
                 } catch (_: InterruptedException) { break }
@@ -226,7 +254,7 @@ class CaptionSession(
                 finally { if (isFinal) activeFinalEndpoint = null }
             }
         } catch (t: Throwable) { if (active.get()) fail("Translator: ${t.message}") }
-        finally { translator?.close(); if (isFinal) finalTranslator = null else fastTranslator = null }
+        finally { performanceHint.close(); translator?.close(); if (isFinal) finalTranslator = null else fastTranslator = null }
     }
     private fun depths() = CaptionState.metrics(generation) {
         it.copy(provisionalDepth = provisional.size(), finalDepth = finals.size(), captionBacklogMs = captionAge())

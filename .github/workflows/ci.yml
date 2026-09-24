@@ -52,6 +52,9 @@ jobs:
           yes | "$SDKMANAGER" --licenses >/dev/null || true
           "$SDKMANAGER" "platforms;android-35" "build-tools;35.0.0" "ndk;28.2.13676358" "cmake;3.22.1"
 
+      - name: Build pinned Android OpenCL ICD dispatch layer
+        run: export ANDROID_NDK="$ANDROID_HOME/ndk/28.2.13676358" && bash scripts/build_opencl_android.sh
+
       - name: Fetch verified sherpa-onnx runtime
         run: |
           mkdir -p app/libs
@@ -89,7 +92,7 @@ jobs:
           LIVE_CAPTIONS_KEY_PASSWORD: ${{ secrets.LIVE_CAPTIONS_KEY_PASSWORD }}
         run: |
           chmod +x gradlew
-          ./gradlew :app:testReleaseUnitTest :app:assembleRelease -Pqnn=true --no-daemon --stacktrace --max-workers=2
+          ./gradlew :app:testReleaseUnitTest :app:assembleRelease -Pqnn=true -Popencl=true --no-daemon --stacktrace --max-workers=2
 
       - name: Verify and stage signed APK
         id: delivery

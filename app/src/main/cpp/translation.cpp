@@ -4,10 +4,15 @@
 #include "sentencepiece_processor.h"
 #include "nlohmann/json.hpp"
 #include <algorithm>
+#include <array>
+#include <cctype>
+#include <chrono>
+#include <cstdlib>
 #include <fstream>
 #include <limits>
 #include <mutex>
 #include <stdexcept>
+#include <string>
 #include <vector>
 
 using json = nlohmann::json;
@@ -21,23 +26,51 @@ using Sampler = std::unique_ptr<llama_sampler, decltype(&llama_sampler_free)>;
 class HyMt final : public TranslationEngine {
     Model model{nullptr, llama_model_free};
     Context context{nullptr, llama_free};
-public:
-    HyMt(const std::string & path, int threads) {
-        static std::once_flag once;
-        std::call_once(once, [] { llama_backend_init(); });
+    std::string path;
+    std::string activeBackend = "CPU";
+    int threads, batch, ubatch;
+    bool opencl = false;
+    TranslationStats lastStats;
+
+    static ggml_backend_dev_t adreno830() {
+        for (size_t i = 0; i < ggml_backend_dev_count(); ++i) {
+            auto device = ggml_backend_dev_get(i);
+            auto reg = ggml_backend_dev_backend_reg(device);
+            if (!reg || std::string(ggml_backend_reg_name(reg)) != "OPENCL") continue;
+            std::string description = ggml_backend_dev_name(device);
+            description += " ";
+            description += ggml_backend_dev_description(device);
+            std::transform(description.begin(), description.end(), description.begin(),
+                [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+            if (description.find("adreno") == std::string::npos || description.find("830") == std::string::npos) continue;
+            return device;
+        }
+        return nullptr;
+    }
+
+    void initialize(ggml_backend_dev_t device) {
+        if (batch <= 0 || ubatch <= 0 || ubatch > batch) throw std::runtime_error("Invalid translation batch/ubatch configuration");
         auto params = llama_model_default_params();
-        params.n_gpu_layers = 0;
+        params.n_gpu_layers = device ? -1 : 0;
+        params.split_mode = LLAMA_SPLIT_MODE_NONE;
+        std::array<ggml_backend_dev_t, 2> devices{device, nullptr};
+        params.devices = device ? devices.data() : nullptr;
         model.reset(llama_model_load_from_file(path.c_str(), params));
         if (!model) throw std::runtime_error("Hy-MT2 model load failed");
         auto options = llama_context_default_params();
-        options.n_ctx = 2048; options.n_batch = 256; options.n_ubatch = 128;
+        options.n_ctx = 2048; options.n_batch = batch; options.n_ubatch = ubatch;
         options.n_threads = threads; options.n_threads_batch = threads;
         options.abort_callback = [](void * value) { return static_cast<HyMt *>(value)->cancelled.load(); };
         options.abort_callback_data = this;
         context.reset(llama_init_from_model(model.get(), options));
         if (!context) throw std::runtime_error("Hy-MT2 context creation failed");
+        opencl = device != nullptr;
+        activeBackend = device
+            ? std::string("Adreno OpenCL · ") + ggml_backend_dev_name(device) + " (GPU offload)"
+            : (preferOpenCL ? "CPU · Adreno 830 OpenCL unavailable; fallback" : "CPU");
     }
-    std::string translate(const std::string & prompt) override {
+
+    std::string run(const std::string & prompt) {
         checkCancelled();
         llama_memory_clear(llama_get_memory(context.get()), true);
         const auto * vocab = llama_model_get_vocab(model.get());
@@ -55,11 +88,14 @@ public:
         std::vector<llama_token> tokens(count);
         if (llama_tokenize(vocab, chat.data(), length, tokens.data(), count, true, true) != count)
             throw std::runtime_error("Hy-MT2 tokenization failed");
-        for (int offset = 0; offset < count; offset += 256) {
+        auto prefillStart = std::chrono::steady_clock::now();
+        for (int offset = 0; offset < count; offset += batch) {
             checkCancelled();
-            auto batch = llama_batch_get_one(tokens.data() + offset, std::min(256, count - offset));
-            if (llama_decode(context.get(), batch) != 0) throw std::runtime_error("Hy-MT2 prompt decode failed or cancelled");
+            auto input = llama_batch_get_one(tokens.data() + offset, std::min(batch, count - offset));
+            if (llama_decode(context.get(), input) != 0) throw std::runtime_error("Hy-MT2 prompt decode failed or cancelled");
         }
+        lastStats.prefill_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::steady_clock::now() - prefillStart).count();
         Sampler sampler(llama_sampler_chain_init(llama_sampler_chain_default_params()), llama_sampler_free);
         llama_sampler_chain_add(sampler.get(), llama_sampler_init_penalties(llama_vocab_n_tokens(vocab), 64, 1.05f, 0, 0));
         llama_sampler_chain_add(sampler.get(), llama_sampler_init_top_k(20));
@@ -67,10 +103,15 @@ public:
         llama_sampler_chain_add(sampler.get(), llama_sampler_init_temp(0.7f));
         llama_sampler_chain_add(sampler.get(), llama_sampler_init_dist(42));
         std::string result;
+        auto decodeStart = std::chrono::steady_clock::now();
         for (int i = 0; i < max_output; ++i) {
             checkCancelled();
             auto token = llama_sampler_sample(sampler.get(), context.get(), -1);
-            if (llama_vocab_is_eog(vocab, token)) return result;
+            if (llama_vocab_is_eog(vocab, token)) {
+                lastStats.decode_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                    std::chrono::steady_clock::now() - decodeStart).count();
+                return result;
+            }
             char buffer[256];
             int size = llama_token_to_piece(vocab, token, buffer, sizeof(buffer), 0, false);
             if (size < 0) {
@@ -84,6 +125,53 @@ public:
         }
         throw std::runtime_error("Hy-MT2 output exceeded token limit; not committing truncated translation");
     }
+
+    void fallbackToCpu() {
+        context.reset();
+        model.reset();
+        initialize(nullptr);
+        activeBackend = "CPU · Adreno OpenCL inference failed; fallback";
+    }
+public:
+    HyMt(const std::string & modelPath, int cpuThreads, int contextBatch, int contextUbatch,
+         bool preferOpenCL, const std::string & cacheDir)
+        : path(modelPath), threads(cpuThreads), batch(contextBatch), ubatch(contextUbatch), preferOpenCL(preferOpenCL) {
+#if defined(TRANSLATION_OPENCL)
+        if (!cacheDir.empty()) setenv("GGML_OPENCL_KERNEL_CACHE_DIR", cacheDir.c_str(), 1);
+        // Set these before llama's one-time backend initialization, including CPU A/B runs.
+        setenv("OCL_ICD_FILENAMES", "libOpenCL.so", 1);
+#else
+        (void) cacheDir;
+#endif
+        static std::once_flag once;
+        std::call_once(once, [] { llama_backend_init(); });
+        if (preferOpenCL) {
+            auto device = adreno830();
+            if (device) {
+                auto probe = ggml_backend_dev_init(device, nullptr);
+                if (probe) {
+                    ggml_backend_free(probe);
+                    try { initialize(device); return; }
+                    catch (...) { context.reset(); model.reset(); }
+                }
+            }
+        }
+        initialize(nullptr);
+    }
+    std::string translate(const std::string & prompt) override {
+        lastStats = {};
+        try { return run(prompt); }
+        catch (...) {
+            if (!opencl || cancelled.load()) throw;
+            fallbackToCpu();
+            lastStats = {};
+            return run(prompt);
+        }
+    }
+    std::string backend() const override { return activeBackend; }
+    TranslationStats stats() const override { return lastStats; }
+private:
+    bool preferOpenCL;
 };
 
 json read_json(const std::string & path) {
@@ -188,5 +276,9 @@ public:
     }
 };
 }
-std::unique_ptr<TranslationEngine> load_hymt(const std::string & path, int threads) { return std::make_unique<HyMt>(path, threads); }
+std::unique_ptr<TranslationEngine> load_hymt(const std::string & path, int threads,
+                                              int batch, int ubatch, bool preferOpenCL,
+                                              const std::string & cacheDir) {
+    return std::make_unique<HyMt>(path, threads, batch, ubatch, preferOpenCL, cacheDir);
+}
 std::unique_ptr<TranslationEngine> load_opus(const std::string & path, int threads) { return std::make_unique<Opus>(path, threads); }

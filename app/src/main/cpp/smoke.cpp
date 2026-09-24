@@ -6,7 +6,7 @@
 int main(int argc, char ** argv) {
     try {
         if (argc != 4) throw std::runtime_error("Usage: translation-smoke hymt.gguf opus-nl-directory opus-fr-directory");
-        auto hymt = load_hymt(argv[1], 4);
+        auto hymt = load_hymt(argv[1], 4, 256, 128, false, "");
         std::vector<std::pair<std::string, std::string>> cases = {
             {"Translate the following text into English. Only output the translated result without any additional explanation:\n\nGoedemorgen. De vergadering begint om negen uur.", "meeting"},
             {"Reference the following translations:\n晶圆 translates to wafer\n套刻 translates to overlay\n\nTranslate the following text into English. Only output the translated result without any additional explanation:\n\n请检查晶圆上的套刻误差。", "wafer"},
@@ -17,7 +17,9 @@ int main(int argc, char ** argv) {
             auto result = hymt->translate(test.first);
             if (result.find(test.second) == std::string::npos) throw std::runtime_error("Hy-MT2 smoke mismatch: " + result);
             auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - start).count();
-            std::cout << "Hy-MT2 CPU: " << result << " (" << ms << " ms)" << std::endl;
+            const auto timing = hymt->stats();
+            std::cout << "Hy-MT2 " << hymt->backend() << ": " << result << " (" << ms
+                      << " ms; prefill " << timing.prefill_ms << " ms, decode " << timing.decode_ms << " ms)" << std::endl;
         }
         auto opus = load_opus(argv[2], 2);
         for (int n = 0; n < 2; ++n) {

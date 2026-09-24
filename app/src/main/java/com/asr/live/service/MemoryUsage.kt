@@ -14,6 +14,7 @@ data class MemorySnapshot(
     val nativeHeapKb: Long,
     val javaHeapKb: Long,
     val availableKb: Long,
+    val thermalStatus: String,
 )
 
 object MemoryUsage {
@@ -32,8 +33,21 @@ object MemoryUsage {
         }.getOrDefault(0L)
         val runtime = Runtime.getRuntime()
         val system = ActivityManager.MemoryInfo().also { manager.getMemoryInfo(it) }
+        val thermal = if (android.os.Build.VERSION.SDK_INT >= 29) {
+            val status = context.getSystemService(android.os.PowerManager::class.java)?.currentThermalStatus
+            when (status) {
+                android.os.PowerManager.THERMAL_STATUS_NONE -> "None"
+                android.os.PowerManager.THERMAL_STATUS_LIGHT -> "Light"
+                android.os.PowerManager.THERMAL_STATUS_MODERATE -> "Moderate"
+                android.os.PowerManager.THERMAL_STATUS_SEVERE -> "Severe"
+                android.os.PowerManager.THERMAL_STATUS_CRITICAL -> "Critical"
+                android.os.PowerManager.THERMAL_STATUS_EMERGENCY -> "Emergency"
+                android.os.PowerManager.THERMAL_STATUS_SHUTDOWN -> "Shutdown"
+                else -> "Unknown"
+            }
+        } else "Unavailable"
         return MemorySnapshot(own + additional, rss, Debug.getNativeHeapAllocatedSize() / 1024,
-            (runtime.totalMemory() - runtime.freeMemory()) / 1024, system.availMem / 1024)
+            (runtime.totalMemory() - runtime.freeMemory()) / 1024, system.availMem / 1024, thermal)
     }
 
     /** Refuse an optional large model if Android cannot retain a 2 GiB system reserve. */

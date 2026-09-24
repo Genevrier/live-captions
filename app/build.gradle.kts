@@ -8,6 +8,8 @@ plugins {
 }
 
 val qnnEnabled = providers.gradleProperty("qnn").orNull == "true"
+val openclEnabled = providers.gradleProperty("opencl").orNull == "true"
+val openclRoot = layout.buildDirectory.dir("opencl").get().asFile
 
 android {
     namespace = "com.asr.live"
@@ -19,12 +21,22 @@ android {
         minSdk = 29
         targetSdk = 35
         buildConfigField("boolean", "QNN_ENABLED", qnnEnabled.toString())
+        buildConfigField("boolean", "OPENCL_ENABLED", openclEnabled.toString())
         versionCode = 9
         versionName = "2.6"
 
         // Honor Magic V5 uses arm64-v8a.
         ndk { abiFilters += "arm64-v8a" }
-        externalNativeBuild { cmake { arguments += "-DANDROID_STL=c++_shared" } }
+        externalNativeBuild {
+            cmake {
+                arguments += "-DANDROID_STL=c++_shared"
+                if (openclEnabled) arguments += listOf(
+                    "-DTRANSLATION_OPENCL=ON",
+                    "-DOpenCL_LIBRARY=${openclRoot.resolve("lib/libOpenCL_loader.a").absolutePath}",
+                    "-DOpenCL_INCLUDE_DIR=${openclRoot.resolve("deps/headers").absolutePath}",
+                )
+            }
+        }
     }
 
     signingConfigs {
