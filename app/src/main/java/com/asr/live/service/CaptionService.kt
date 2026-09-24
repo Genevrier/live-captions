@@ -50,7 +50,8 @@ class CaptionService : Service() {
                 val generation = displayedGeneration
                 if (CaptionState.running.value) {
                     val memory = withContext(Dispatchers.IO) { MemoryUsage.sample(this@CaptionService) }
-                    CaptionState.metrics(generation) { it.copy(appPssKb = memory.first, nativeHeapKb = memory.second) }
+                    CaptionState.metrics(generation) { it.copy(appPssKb = memory.appPssKb, rssKb = memory.rssKb,
+                        nativeHeapKb = memory.nativeHeapKb, javaHeapKb = memory.javaHeapKb, availableKb = memory.availableKb) }
                     // Recheck permission and lock-screen visibility even during a silent phrase.
                     overlay.render(CaptionState.lines.value, CaptionState.lifecycle.value,
                         if (CaptionState.metrics.value.profile == Profile.ENGLISH_FRENCH.label) "French" else "English")
@@ -88,6 +89,7 @@ class CaptionService : Service() {
         }
         val config = SessionConfig(
             profile = Profile.fromId(intent.getStringExtra("profile")),
+            performanceMode = PerformanceMode.entries.firstOrNull { it.name == intent.getStringExtra("performanceMode") } ?: PerformanceMode.BALANCED,
             modelId = intent.getStringExtra("model") ?: ModelCatalog.DEFAULT.id,
             threads = intent.getIntExtra("threads", 6).coerceIn(1, 8),
             quality = TranslationQuality.entries.firstOrNull { it.name == intent.getStringExtra("quality") } ?: TranslationQuality.HY_Q8,
@@ -180,7 +182,7 @@ class CaptionService : Service() {
         private const val NOTIF_ID = 1
         fun start(ctx: Context, config: SessionConfig) {
             ContextCompat.startForegroundService(ctx, Intent(ctx, CaptionService::class.java)
-                .putExtra("profile", config.profile.name).putExtra("model", config.modelId)
+                .putExtra("profile", config.profile.name).putExtra("performanceMode", config.performanceMode.name).putExtra("model", config.modelId)
                 .putExtra("threads", config.threads).putExtra("quality", config.quality.name)
                 .putExtra("qnn", config.qnn).putExtra("correction", config.correction).putExtra("glossary", config.glossary))
         }

@@ -13,6 +13,8 @@ import kotlinx.coroutines.flow.asStateFlow
 import com.asr.live.overlay.OverlayPreferences
 import com.asr.live.overlay.OverlayOptions
 
+data class TranslationBenchmark(val model: String, val elapsedMs: Long, val output: String, val error: String? = null)
+
 data class ManagedModel(val id: String, val label: String, val bytes: Long, val installed: Boolean, val selectable: Boolean = false, val stored: Boolean = installed)
 
 class CaptionViewModel(app: Application) : AndroidViewModel(app) {
@@ -25,9 +27,12 @@ class CaptionViewModel(app: Application) : AndroidViewModel(app) {
     val managed = _managed.asStateFlow()
     private val _config = MutableStateFlow(SessionConfig(
         profile = Profile.fromId(prefs.getString("profile", null)),
+        performanceMode = PerformanceMode.entries.firstOrNull { it.name == prefs.getString("performanceMode", null) }
+            ?: PerformanceMode.defaultFor(android.os.Build.SOC_MODEL, android.os.Build.MANUFACTURER, android.os.Build.MODEL),
         modelId = prefs.getString("model", ModelCatalog.DEFAULT.id) ?: ModelCatalog.DEFAULT.id,
         threads = prefs.getInt("threads", 6).coerceIn(1, 8),
-        quality = TranslationQuality.entries.firstOrNull { it.name == prefs.getString("quality", null) } ?: TranslationQuality.HY_Q8,
+        quality = TranslationQuality.entries.firstOrNull { it.name == prefs.getString("quality", null) }
+            ?: if (PerformanceMode.defaultFor(android.os.Build.SOC_MODEL, android.os.Build.MANUFACTURER, android.os.Build.MODEL) == PerformanceMode.MAX_QUALITY) TranslationQuality.HY_7B_Q6 else TranslationQuality.HY_Q8,
         qnn = prefs.getBoolean("qnn", false),
         correction = prefs.getBoolean("correction", false),
         glossary = prefs.getString("glossary", "") ?: "",
@@ -42,9 +47,42 @@ class CaptionViewModel(app: Application) : AndroidViewModel(app) {
     val error = CaptionState.error
     val metrics = CaptionState.metrics
     val download = ModelRepository.state
+    private val _benchmark = MutableStateFlow<List<TranslationBenchmark>>(emptyList())
+    val benchmark = _benchmark.asStateFlow()
+    private val _benchmarkBusy = MutableStateFlow(false)
+    val benchmarkBusy = _benchmarkBusy.asStateFlow()
+    fun benchmarkTranslation(source: String) {
+        if (_busy.value || _benchmarkBusy.value || CaptionState.running.value || source.isBlank()) return
+        val profile = _config.value.profile
+        val glossary = _config.value.glossary
+        _benchmarkBusy.value = true
+        _benchmark.value = emptyList()
+        viewModelScope.launch {
+            try {
+                for (quality in listOf(TranslationQuality.HY_Q8, TranslationQuality.HY_7B_Q4, TranslationQuality.HY_7B_Q6)) {
+                    val id = quality.bundleId!!
+                    val result = withContext(Dispatchers.IO) {
+                        if (!TranslationModels.present(getApplication(), id)) TranslationBenchmark(quality.label, 0, "", "Model not downloaded")
+                        else if (!com.asr.live.service.MemoryUsage.canLoad(getApplication(), TranslationModels.bundle(getApplication(), id).size))
+                            TranslationBenchmark(quality.label, 0, "", "Insufficient free RAM with 2 GiB reserve")
+                        else runCatching {
+                            val dir = TranslationModels.verify(getApplication(), id)
+                            com.asr.live.i18n.NativeTranslator(java.io.File(dir, "model.gguf"), 4, false, profile, glossary).use { engine ->
+                                val start = android.os.SystemClock.elapsedRealtime()
+                                val output = engine.translate(source)
+                                TranslationBenchmark(quality.label, android.os.SystemClock.elapsedRealtime() - start, output)
+                            }
+                        }.getOrElse { TranslationBenchmark(quality.label, 0, "", it.message ?: "Benchmark failed") }
+                    }
+                    _benchmark.value = _benchmark.value + result
+                }
+            } finally { _benchmarkBusy.value = false }
+        }
+    }
     init { refreshPresence() }
     fun model() = ModelCatalog.byId(_config.value.modelId) ?: ModelCatalog.DEFAULT
     fun models() = ModelCatalog.ALL.filter { it.supports(_config.value.profile.source) }
+    fun selectMode(mode: PerformanceMode) = update(_config.value.withMode(mode))
     fun update(config: SessionConfig) {
         if (_busy.value || CaptionState.running.value) return
         val info = ModelCatalog.byId(config.modelId)
@@ -59,6 +97,7 @@ class CaptionViewModel(app: Application) : AndroidViewModel(app) {
         _config.value = adjusted
         prefs.edit().putString("profile", adjusted.profile.name).putString("model", adjusted.modelId)
             .putInt("threads", adjusted.threads).putString("quality", adjusted.quality.name)
+            .putString("performanceMode", adjusted.performanceMode.name)
             .putString("glossary", adjusted.glossary).putBoolean("correction", adjusted.correction).putBoolean("qnn", adjusted.qnn).apply()
         if (previous.profile != adjusted.profile || previous.modelId != adjusted.modelId || previous.quality != adjusted.quality || previous.correction != adjusted.correction || previous.qnn != adjusted.qnn) refreshPresence()
     }

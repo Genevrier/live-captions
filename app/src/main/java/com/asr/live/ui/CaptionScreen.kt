@@ -33,6 +33,9 @@ fun CaptionScreen(vm: CaptionViewModel, hasAudioPermission: Boolean, onRequestPe
     val metrics by vm.metrics.collectAsState()
     val overlay by vm.overlay.collectAsState()
     val managed by vm.managed.collectAsState()
+    val benchmark by vm.benchmark.collectAsState()
+    val benchmarkBusy by vm.benchmarkBusy.collectAsState()
+    var benchmarkText by remember { mutableStateOf("Goedemorgen, dit is een test van de live vertaling.") }
     var settings by remember { mutableStateOf(false) }
     var profiles by remember { mutableStateOf(false) }
     var diagnostics by remember { mutableStateOf(false) }
@@ -62,6 +65,7 @@ fun CaptionScreen(vm: CaptionViewModel, hasAudioPermission: Boolean, onRequestPe
                     }) }
                 }
             }
+            Text("Performance: ${config.performanceMode.label}", style = MaterialTheme.typography.titleSmall)
             Text("ASR: ${info.shortName} · ${info.chunkMs?.let { "$it ms" } ?: "VAD phrases"} · ${if (!stopped) metrics.backend else if (config.qnn && info.kind == EngineKind.NEMOTRON) "QNN requested · experimental / CPU fallback" else "CPU"} · ${config.threads} threads", style = MaterialTheme.typography.bodySmall)
             Text("Final: ${config.quality.label}", style = MaterialTheme.typography.bodySmall)
             Text("Provisional: ${if (config.quality == TranslationQuality.ML_KIT) "ML Kit on-device" else config.profile.fastBundle?.let { "$it · CPU" } ?: "off"}", style = MaterialTheme.typography.bodySmall)
@@ -126,6 +130,13 @@ fun CaptionScreen(vm: CaptionViewModel, hasAudioPermission: Boolean, onRequestPe
             HorizontalDivider(Modifier.padding(vertical = 12.dp))
             TextButton(onClick = vm::downloadRequired, enabled = stopped && !busy) { Text("Verify / repair required models") }
             TextButton(onClick = { modelManager = true }) { Text("Download / remove models") }
+            Text("Performance profile")
+            PerformanceMode.entries.forEach { mode ->
+                TextButton(onClick = { vm.selectMode(mode) }, enabled = stopped && !busy) {
+                    Text((if (mode == config.performanceMode) "✓ " else "") + mode.label)
+                }
+            }
+            Text("Max quality uses the official 7B Q6 translator on CPU. QNN and GPU are experimental and require on-device validation. Model size alone does not prove accuracy or real-time performance.", style = MaterialTheme.typography.bodySmall)
             Text("Recognition model")
             vm.models().forEach { model -> TextButton(onClick = { vm.update(config.copy(modelId = model.id)) }, enabled = stopped && !busy) { Text((if (model.kind == info.kind) "✓ " else "") + model.displayName) } }
             Text("ASR backend")
@@ -169,6 +180,12 @@ fun CaptionScreen(vm: CaptionViewModel, hasAudioPermission: Boolean, onRequestPe
                 Text("Parakeet v3 endpoint correction")
             }
             Text(if (config.profile.correctionSupported) "Optional second hypothesis; skipped under load. CPU performance is device dependent." else "Parakeet correction is unavailable for Mandarin.", style = MaterialTheme.typography.bodySmall)
+            HorizontalDivider(Modifier.padding(vertical = 12.dp))
+            Text("Translation A/B benchmark", style = MaterialTheme.typography.titleMedium)
+            Text("Runs installed 1.8B Q8, 7B Q4 and 7B Q6 sequentially. Compare output against a human reference; host or phone timing alone does not establish translation accuracy.", style = MaterialTheme.typography.bodySmall)
+            OutlinedTextField(benchmarkText, { benchmarkText = it.take(1000) }, label = { Text("Source sentence") }, enabled = stopped && !benchmarkBusy)
+            TextButton(onClick = { vm.benchmarkTranslation(benchmarkText) }, enabled = stopped && !busy && !benchmarkBusy) { Text(if (benchmarkBusy) "Benchmarking…" else "Run A/B translation") }
+            benchmark.forEach { result -> Text("${result.model}: ${result.error ?: "${result.elapsedMs} ms · ${result.output}"}", style = MaterialTheme.typography.bodySmall) }
             Text("Audio stays in memory and is never uploaded or saved.", style = MaterialTheme.typography.bodySmall)
         }
     })
@@ -200,12 +217,14 @@ fun CaptionScreen(vm: CaptionViewModel, hasAudioPermission: Boolean, onRequestPe
 
 @Composable
 private fun PerformancePanel(m: Performance) {
-    val text = "${m.profile}\nASR: ${m.asr.ifBlank { "Not running" }} · ${m.backend} · chunk ${m.chunk}\n" +
+    val text = "${m.performanceMode} · ${m.profile}\nASR: ${m.asr.ifBlank { "Not running" }} · ${m.backend} · chunk ${m.chunk}\n" +
         "Translator: ${m.translator}\nASR ${m.asrMs} ms · RTF ${"%.2f".format(m.asrRtf)}\n" +
         "Translation ${m.translationMs} ms · correction ${m.correctionMs} ms / RTF ${"%.2f".format(m.correctionRtf)} · skipped ${m.skippedCorrections}\n" +
         "Endpoint → provisional ${m.provisionalLatencyMs?.let { "$it ms" } ?: "—"} · final ${m.finalLatencyMs?.let { "$it ms" } ?: "—"}\n" +
         "Audio queue ${m.audioDepth} · translation ${m.provisionalDepth}+${m.finalDepth}\n" +
         "Caption backlog ${m.captionBacklogMs} ms · capture backlog ${m.backlogMs} ms\nDropped audio ${m.droppedAudioMs} ms · skipped translations ${m.skippedTranslations}\n" +
-        "App + model RAM ≈ ${m.appPssKb / 1024} MiB PSS (includes QNN worker)\nMain-process native heap ≈ ${m.nativeHeapKb / 1024} MiB · sampled every 5 s"
+        "App RAM ${m.appPssKb / 1024} MiB PSS · process RSS ${m.rssKb / 1024} MiB\n" +
+        "Native heap ${m.nativeHeapKb / 1024} MiB · Java heap ${m.javaHeapKb / 1024} MiB\n" +
+        "Loaded model files ≈ ${m.estimatedModelsKb / 1024} MiB · system available ${m.availableKb / 1024} MiB · sampled every 5 s"
     Text(text, style = MaterialTheme.typography.bodySmall, modifier = Modifier.fillMaxWidth().heightIn(max = 220.dp).verticalScroll(rememberScrollState()).padding(bottom = 8.dp))
 }

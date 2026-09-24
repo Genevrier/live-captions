@@ -12,8 +12,21 @@ enum class Profile(val source: String, val target: String, val label: String) {
     }
 }
 
+enum class PerformanceMode(val label: String) {
+    FAST("Fast"), BALANCED("Balanced"), MAX_QUALITY("Max quality");
+
+    companion object {
+        fun defaultFor(soc: String?, manufacturer: String?, model: String?): PerformanceMode =
+            if (soc?.contains("SM8750", ignoreCase = true) == true &&
+                manufacturer?.contains("Honor", ignoreCase = true) == true &&
+                model?.contains("Magic V5", ignoreCase = true) == true) MAX_QUALITY else BALANCED
+    }
+}
+
 enum class TranslationQuality(val label: String, val bundleId: String? = null) {
-    HY_Q8("Hy-MT2 Q8_0 · CPU", "hymt2-Q8_0"),
+    HY_7B_Q6("Hy-MT2 7B Q6_K · CPU", "hymt2-7b-Q6_K"),
+    HY_7B_Q4("Hy-MT2 7B Q4_K_M · CPU", "hymt2-7b-Q4_K_M"),
+    HY_Q8("Hy-MT2 1.8B Q8_0 · CPU", "hymt2-Q8_0"),
     HY_Q6("Hy-MT2 Q6_K · CPU", "hymt2-Q6_K"),
     HY_Q4("Hy-MT2 Q4_K_M · CPU", "hymt2-Q4_K_M"),
     ML_KIT("ML Kit · local fast translation")
@@ -21,6 +34,7 @@ enum class TranslationQuality(val label: String, val bundleId: String? = null) {
 
 data class SessionConfig(
     val profile: Profile = Profile.DUTCH_ENGLISH,
+    val performanceMode: PerformanceMode = PerformanceMode.BALANCED,
     val modelId: String = "nemotron-3.5-560ms-int8",
     val threads: Int = 6,
     val quality: TranslationQuality = TranslationQuality.HY_Q8,
@@ -29,4 +43,11 @@ data class SessionConfig(
     val qnn: Boolean = false,
 ) {
     init { require(threads in 1..8) }
+}
+
+/** Presets are explicit; manual model/backend choices remain available afterward. */
+fun SessionConfig.withMode(mode: PerformanceMode): SessionConfig = when (mode) {
+    PerformanceMode.FAST -> copy(performanceMode = mode, modelId = "nemotron-3.5-560ms-int8", quality = TranslationQuality.HY_Q4, correction = false, qnn = false)
+    PerformanceMode.BALANCED -> copy(performanceMode = mode, modelId = "nemotron-3.5-560ms-int8", quality = TranslationQuality.HY_Q8, correction = false, qnn = false)
+    PerformanceMode.MAX_QUALITY -> copy(performanceMode = mode, modelId = "nemotron-3.5-560ms-int8", quality = TranslationQuality.HY_7B_Q6, correction = false, qnn = false)
 }

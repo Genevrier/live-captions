@@ -180,7 +180,11 @@ class CaptionSession(
     private fun createTranslator(isFinal: Boolean): LocalTranslator {
         if (config.quality == TranslationQuality.ML_KIT) return MlKitTranslator(config.profile.source, config.profile.target)
         val bundle = if (isFinal) config.quality.bundleId!! else checkNotNull(config.profile.fastBundle)
+        val modelBytes = TranslationModels.bundle(ctx, bundle).size
+        if (isFinal && modelBytes > 3_000_000_000L && !MemoryUsage.canLoad(ctx, modelBytes))
+            error("Not enough available RAM for ${config.quality.label} with 2 GiB system headroom; choose a smaller translation model")
         val directory = TranslationModels.verify(ctx, bundle)
+        CaptionState.metrics(generation) { it.copy(estimatedModelsKb = (modelBytes + info.archiveBytes) / 1024) }
         return NativeTranslator(if (isFinal) java.io.File(directory, "model.gguf") else directory,
             if (isFinal) minOf(config.threads, 4) else 2, !isFinal, config.profile, config.glossary)
     }

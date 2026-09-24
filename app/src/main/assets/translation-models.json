@@ -2,6 +2,34 @@
   "schema": 1,
   "bundles": [
     {
+      "id": "hymt2-7b-Q4_K_M",
+      "label": "Hy-MT2 7B Q4_K_M",
+      "license": "Apache-2.0",
+      "revision": "ab8472660ac61fac25f1af43fac2599d52a8a775",
+      "files": [
+        {
+          "path": "model.gguf",
+          "url": "https://huggingface.co/tencent/Hy-MT2-7B-GGUF/resolve/ab8472660ac61fac25f1af43fac2599d52a8a775/Hy-MT2-7B-Q4_K_M.gguf",
+          "size": 4624648896,
+          "sha256": "9f96256500f3fc1ab4d64336b58f52a949a95ad7516b0c229476eef782f9f77b"
+        }
+      ]
+    },
+    {
+      "id": "hymt2-7b-Q6_K",
+      "label": "Hy-MT2 7B Q6_K",
+      "license": "Apache-2.0",
+      "revision": "ab8472660ac61fac25f1af43fac2599d52a8a775",
+      "files": [
+        {
+          "path": "model.gguf",
+          "url": "https://huggingface.co/tencent/Hy-MT2-7B-GGUF/resolve/ab8472660ac61fac25f1af43fac2599d52a8a775/HY-MT2-7B-Q6_K.gguf",
+          "size": 6164482720,
+          "sha256": "88ef0aba59952a4cfe4be36cb5baf797dbb370bc60e9dcbd7297036021e52831"
+        }
+      ]
+    },
+    {
       "id": "hymt2-Q8_0",
       "label": "Hy-MT2 1.8B Q8_0",
       "license": "Apache-2.0",

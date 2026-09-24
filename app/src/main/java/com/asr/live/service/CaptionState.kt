@@ -12,7 +12,9 @@ data class Performance(
     val captionBacklogMs: Long = 0,
     val backlogMs: Long = 0, val droppedAudioMs: Long = 0, val skippedTranslations: Int = 0,
     val correctionMs: Long = 0, val correctionRtf: Double = 0.0, val skippedCorrections: Int = 0,
-    val appPssKb: Long = 0, val nativeHeapKb: Long = 0,
+    val appPssKb: Long = 0, val rssKb: Long = 0, val nativeHeapKb: Long = 0,
+    val javaHeapKb: Long = 0, val availableKb: Long = 0, val estimatedModelsKb: Long = 0,
+    val performanceMode: String = "Balanced",
     val asr: String = "", val translator: String = "ML Kit", val backend: String = "CPU",
     val profile: String = "Dutch → English", val chunk: String = "560 ms", val threads: Int = 6,
 )
@@ -34,6 +36,7 @@ object CaptionState {
     @Synchronized fun begin(id: Long, config: SessionConfig, modelName: String) {
         generation = id; ledger.start(id); publish()
         _metrics.value = Performance(asr = modelName, translator = config.quality.label, profile = config.profile.label, threads = config.threads,
+            performanceMode = config.performanceMode.label,
             chunk = com.asr.live.model.ModelCatalog.byId(config.modelId)?.chunkMs?.let { "$it ms" } ?: "VAD phrases")
         _error.value = null; setLifecycle(ListeningState.STARTING)
     }
