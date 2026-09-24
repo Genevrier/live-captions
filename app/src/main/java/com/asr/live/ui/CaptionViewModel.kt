@@ -22,6 +22,8 @@ class CaptionViewModel(app: Application) : AndroidViewModel(app) {
     private val prefs = app.getSharedPreferences("profiles_v2", Context.MODE_PRIVATE)
     private val overlayPrefs = OverlayPreferences(app)
     private val deviceMode = PerformanceMode.defaultFor(if (android.os.Build.VERSION.SDK_INT >= 31) android.os.Build.SOC_MODEL else null, android.os.Build.MANUFACTURER, android.os.Build.MODEL)
+    private val initialMode = PerformanceMode.entries.firstOrNull { it.name == prefs.getString("performanceMode", null) }
+        ?: if (prefs.contains("quality")) PerformanceMode.BALANCED else deviceMode
     val overlay = overlayPrefs.state
     fun updateOverlay(options: OverlayOptions) = overlayPrefs.update(options)
     override fun onCleared() { overlayPrefs.close(); super.onCleared() }
@@ -29,12 +31,11 @@ class CaptionViewModel(app: Application) : AndroidViewModel(app) {
     val managed = _managed.asStateFlow()
     private val _config = MutableStateFlow(SessionConfig(
         profile = Profile.fromId(prefs.getString("profile", null)),
-        performanceMode = PerformanceMode.entries.firstOrNull { it.name == prefs.getString("performanceMode", null) }
-            ?: deviceMode,
+        performanceMode = initialMode,
         modelId = prefs.getString("model", ModelCatalog.DEFAULT.id) ?: ModelCatalog.DEFAULT.id,
         threads = prefs.getInt("threads", 6).coerceIn(1, 8),
         quality = TranslationQuality.entries.firstOrNull { it.name == prefs.getString("quality", null) }
-            ?: if (deviceMode == PerformanceMode.MAX_QUALITY) TranslationQuality.HY_7B_Q6 else TranslationQuality.HY_Q8,
+            ?: if (initialMode == PerformanceMode.MAX_QUALITY) TranslationQuality.HY_7B_Q6 else TranslationQuality.HY_Q8,
         qnn = prefs.getBoolean("qnn", false),
         correction = prefs.getBoolean("correction", false),
         glossary = prefs.getString("glossary", "") ?: "",
