@@ -1,82 +1,19 @@
-# Live Captions — offline on-device ASR for Pixel 9 Pro
+# Live Captions for Honor Magic V5
 
-An Android app that listens through the microphone and prints what it hears, in real time,
-**100% on-device / offline**. No cloud, no Google APIs, no account.
+An Android app that listens through the phone microphone and shows on-device speech captions. It targets arm64-v8a / Android 10+ and uses a foreground microphone service. No root, Shizuku, Termux, external microphone, or cloud inference is needed for normal operation after model downloads.
 
-## What it does
+## Current implementation
 
-- Captures ambient speech and shows a live, scrolling transcript.
-- Four switchable recognition engines (all run offline via [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx) 1.13.2 + ONNX Runtime):
+The default recognition model is **Nemotron 3.5 Streaming 0.6B INT8, 560 ms** on CPU (six inference threads). The default language is Dutch and the default target is English. The model is downloaded in the app, verified against the upstream archive SHA-256, and stored in app-private storage. Mandarin can use the multilingual Nemotron model, or the existing multilingual Whisper fallback. The older English-only Zipformer and Parakeet v2 models remain available; they should only be selected for English audio. Parakeet is never used as a Mandarin corrector.
 
-| Engine | Model | Size (download) | Latency | Notes |
-|---|---|---|---|---|
-| **Streaming** (default) | Streaming Zipformer int8 (`2023-06-26`) | ~296 MB archive → ~70 MB kept | word-by-word, ~300 ms | English, very good |
-| **Accuracy** | NVIDIA Parakeet TDT 0.6B v2 int8 + Silero VAD | ~460 MB | utterance, ~1 s | English, SOTA (OpenASR leader) |
-| **Multi-base** | Whisper base int8 + Silero VAD | ~197 MB | utterance, ~1 s | ~90 languages incl. Turkish |
-| **Multi-small** | Whisper small int8 + Silero VAD | ~609 MB | utterance, ~2-4 s | ~90 languages, best accuracy |
+Translation currently uses **ML Kit on-device translation**, downloaded when listening starts. The UI names this translator explicitly. It is not OPUS-MT. Whisper's direct English translation remains available when a Whisper model is selected. Translation failures are shown instead of silently returning untranslated text. The audio queue is bounded; when decoding falls behind, the oldest audio chunk is discarded and the app shows a dropped-chunk count. Translation runs on a separate worker and delayed results update their caption by segment ID.
 
-Models are **downloaded on first use** into app storage and then work fully offline forever
-(verify with airplane mode). Silero VAD is bundled in the APK.
+These capabilities still need implementation or device validation: pinned OPUS-MT models and decoder caching; a real QNN context and compatible Qualcomm native runtime; optional Parakeet v3 second-pass correction; and a physical Honor Magic V5 test. The app does not expose an NPU switch. CPU inference is labelled CPU. Downloaded translation models should be prepared before offline use; currently the app prepares the ML Kit model at the start of a listening session.
 
-### Languages & translation
+## Build and install
 
-The toolbar's **translate** icon opens language settings:
+The CI workflow builds and signs an arm64 release APK using a persistent keystore in GitHub Actions secrets, then uploads the APK and SHA-256. The signing keystore is also backed up outside this repository at `~/.local/share/live-captions-signing/release.jks` on the build operator's machine. Never commit it or its passwords. Subsequent CI builds use `LIVE_CAPTIONS_KEYSTORE_B64`, `LIVE_CAPTIONS_STORE_PASSWORD`, and `LIVE_CAPTIONS_KEY_PASSWORD` repository secrets.
 
-- **Spoken language** (Multilingual engines): the language Whisper should expect — Turkish and
-  ~15 others. This is the source language for recognition.
-- **Translate to**: off, or any of 16 targets (English, Turkish, German, …). Translation is
-  shown on top with the **original transcription beneath it**, and works with any engine.
+For local builds, use JDK 17 and Android SDK 35. `./gradlew :app:testDebugUnitTest :app:assembleDebug` fetches a checksum-pinned sherpa-onnx v1.13.8 AAR. Install the signed APK from the latest successful CI artifact to retain the signing identity across updates.
 
-Two translation paths are used automatically, both fully offline:
-
-- **Whisper → English**: when a Multilingual engine targets English, Whisper's built-in
-  `task=translate` does it in one pass (no extra download). E.g. Turkish speech → English text.
-- **[ML Kit](https://developers.google.com/ml-kit/language/translation) → any target**: for
-  every other target (e.g. Turkish→German, English→Turkish) the recognized text is translated by
-  ML Kit's on-device models (~30 MB per language, downloaded once, then offline).
-
-## Why these choices (state of the art, mid-2026)
-
-- **Runtime:** sherpa-onnx is the mature offline on-device ASR stack — prebuilt arm64 JNI,
-  streaming + offline recognizers, Silero VAD, all the current open models.
-- **Models:** Parakeet TDT 0.6B leads the Hugging Face OpenASR leaderboard; streaming Zipformer
-  gives true low-latency captions (RTF ~0.062, i.e. ~16× faster than real time on a phone CPU).
-- **Quantization:** int8 dynamic quant is the on-device standard — ~half the size, faster CPU
-  inference, negligible WER loss. Inference runs on **CPU + 4 threads** (the reliable provider;
-  NNAPI/GPU on Tensor are flaky for these graphs).
-
-## Build
-
-Requires JDK 17 and the Android SDK (set `sdk.dir` in `local.properties`; NDK not required —
-native `.so` files come from the vendored AAR).
-
-```bash
-./gradlew :app:assembleDebug
-# APK: app/build/outputs/apk/debug/app-debug.apk
-```
-
-The sherpa-onnx runtime is vendored at `app/libs/sherpa-onnx-1.13.2.aar` (arm64-v8a only, to
-match the Pixel 9 Pro and keep the APK small).
-
-## Install & run (Pixel 9 Pro)
-
-```bash
-adb install -r app/build/outputs/apk/debug/app-debug.apk
-```
-
-1. Launch **Live Captions**, grant Microphone (and Notifications on Android 13+).
-2. Pick an engine in the top bar (default **Streaming**), tap **Download** once.
-3. Tap **Listen** and speak — captions appear live. A persistent notification shows it's
-   listening; tap **Stop** there or in-app to end.
-
-## Architecture
-
-```
-audio/AudioCapture      AudioRecord 16 kHz mono → FloatArray chunks (own thread)
-service/CaptionService  foreground (type=microphone) service; queue decouples capture from decode
-asr/StreamingEngine     OnlineRecognizer (Zipformer) → partial + endpointed finals
-asr/OfflineVadEngine    Silero VAD → OfflineRecognizer (Parakeet) per utterance
-model/ModelRepository   download .tar.bz2 + extract (commons-compress) → filesDir
-service/CaptionState    StateFlow bridge service → Compose UI
-ui/CaptionScreen        transcript, engine picker, download gate, Listen/Stop
-```
+The Nemotron archive is sourced from the [sherpa-onnx model release](https://github.com/k2-fsa/sherpa-onnx/releases/tag/asr-models) and is not committed to Git. The runtime is sourced from the [sherpa-onnx v1.13.8 release](https://github.com/k2-fsa/sherpa-onnx/releases/tag/v1.13.8).

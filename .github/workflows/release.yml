@@ -24,6 +24,13 @@ jobs:
       - name: Install SDK packages
         run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
 
+      - name: Fetch verified sherpa-onnx runtime
+        run: |
+          mkdir -p app/libs
+          curl -L --fail --retry 3 -o app/libs/sherpa-onnx-1.13.8.aar \
+            https://github.com/k2-fsa/sherpa-onnx/releases/download/v1.13.8/sherpa-onnx-1.13.8.aar
+          echo '633c24321e06b1fe79feafa03ea16cbc0f8a286641e2da3559bac91bdb13bd96  app/libs/sherpa-onnx-1.13.8.aar' | sha256sum -c -
+
       - name: Build debug APK
         run: |
           chmod +x gradlew

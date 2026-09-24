@@ -1,4 +1,5 @@
 import java.net.URI
+import java.security.MessageDigest
 
 plugins {
     id("com.android.application")
@@ -110,7 +111,7 @@ val downloadSherpaAar by tasks.registering {
                 out.outputStream().use { output -> input.copyTo(output) }
             }
         }
-        val actual = java.security.MessageDigest.getInstance("SHA-256").digest(out.readBytes())
+        val actual = MessageDigest.getInstance("SHA-256").digest(out.readBytes())
             .joinToString("") { "%02x".format(it) }
         check(actual == sherpaAarSha256) { "sherpa-onnx AAR checksum mismatch" }
     }
