@@ -4,6 +4,8 @@ import struct, sys, zipfile
 with zipfile.ZipFile(sys.argv[1]) as apk:
     assert apk.testzip() is None, 'Corrupt APK ZIP member'
     entries = apk.namelist()
+    icon_entries = sorted(n for n in entries if 'mipmap' in n or 'launcher' in n.lower())
+    print('Packaged launcher resources:', ', '.join(icon_entries))
     for density in ('mdpi', 'hdpi', 'xhdpi', 'xxhdpi', 'xxxhdpi'):
         for icon in ('ic_launcher.xml', 'ic_launcher_round.xml'):
             assert any(n.startswith(f'res/mipmap-{density}') and n.endswith('/' + icon) for n in entries), (density, icon)
