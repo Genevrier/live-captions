@@ -13,7 +13,7 @@ bounded in-memory buffer and is not saved or uploaded.
 | Mandarin → English | Qwen3-ASR 0.6B INT8, VAD phrases up to 4 s | Source transcript while final is pending | Selected Hy-MT2 7B or 1.8B |
 | English → French | Nemotron 3.5 0.6B INT8, 560 ms | OPUS-MT en-fr INT8 | Selected Hy-MT2 7B or 1.8B |
 
-The Honor Magic V5 starts in **MAX QUALITY** mode: Nemotron 560 ms and Hy-MT2
+The Honor Magic V5 (including model identifier MBH-N49) starts in **MAX QUALITY** mode: Nemotron 560 ms and Hy-MT2
 7B Q6_K on CPU. FAST and BALANCED presets select smaller Hy-MT2 models. Selecting
 a preset never silently enables an untested accelerator or second-pass recognizer.
 Settings include a sequential on-device translation A/B control for installed

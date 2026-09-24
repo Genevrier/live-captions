@@ -12,6 +12,7 @@ import org.junit.Test
 class PerformanceModeTest {
     @Test fun magicV5DefaultsToMaxQualityOnlyOnMatchingHardware() {
         assertEquals(PerformanceMode.MAX_QUALITY, PerformanceMode.defaultFor("SM8750", "HONOR", "Magic V5"))
+        assertEquals(PerformanceMode.MAX_QUALITY, PerformanceMode.defaultFor(null, "HONOR", "HONOR MBH-N49"))
         assertEquals(PerformanceMode.BALANCED, PerformanceMode.defaultFor("SM8650", "HONOR", "Magic V5"))
         assertEquals(PerformanceMode.BALANCED, PerformanceMode.defaultFor("SM8750", "other", "Magic V5"))
     }

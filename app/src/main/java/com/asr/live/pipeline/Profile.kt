@@ -17,9 +17,10 @@ enum class PerformanceMode(val label: String) {
 
     companion object {
         fun defaultFor(soc: String?, manufacturer: String?, model: String?): PerformanceMode =
-            if (soc?.contains("SM8750", ignoreCase = true) == true &&
-                manufacturer?.contains("Honor", ignoreCase = true) == true &&
-                model?.contains("Magic V5", ignoreCase = true) == true) MAX_QUALITY else BALANCED
+            if (manufacturer?.contains("Honor", ignoreCase = true) == true &&
+                (model?.contains("MBH-N49", ignoreCase = true) == true ||
+                 (soc?.contains("SM8750", ignoreCase = true) == true &&
+                  model?.contains("Magic V5", ignoreCase = true) == true))) MAX_QUALITY else BALANCED
     }
 }
 
