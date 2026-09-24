@@ -5,6 +5,7 @@ enum class Profile(val source: String, val target: String, val label: String) {
     CHINESE_ENGLISH("zh", "en", "Chinese → English"),
     ENGLISH_FRENCH("en", "fr", "English → French");
 
+    val fastBundle get() = when (this) { DUTCH_ENGLISH -> "opus-nl-en"; ENGLISH_FRENCH -> "opus-en-fr"; CHINESE_ENGLISH -> null }
     val correctionSupported get() = source in setOf("nl", "en")
     companion object {
         fun fromId(id: String?) = entries.firstOrNull { it.name == id } ?: DUTCH_ENGLISH

@@ -5,7 +5,7 @@
 #include <vector>
 int main(int argc, char ** argv) {
     try {
-        if (argc != 3) throw std::runtime_error("Usage: translation-smoke hymt.gguf opus-directory");
+        if (argc != 4) throw std::runtime_error("Usage: translation-smoke hymt.gguf opus-nl-directory opus-fr-directory");
         auto hymt = load_hymt(argv[1], 4);
         std::vector<std::pair<std::string, std::string>> cases = {
             {"Translate the following text into English. Only output the translated result without any additional explanation:\n\nGoedemorgen. De vergadering begint om negen uur.", "meeting"},
@@ -26,7 +26,14 @@ int main(int argc, char ** argv) {
                 throw std::runtime_error("OPUS smoke mismatch: " + result);
             std::cout << "OPUS cached decoder CPU: " << result << std::endl;
         }
-        for (auto * engine : {hymt.get(), opus.get()}) {
+        auto french = load_opus(argv[3], 2);
+        for (int n = 0; n < 2; ++n) {
+            auto result = french->translate("The temperature of the machine is too high.");
+            if (result.find("température") == std::string::npos || result.find("élevée") == std::string::npos)
+                throw std::runtime_error("OPUS French mismatch: " + result);
+            std::cout << "OPUS French cached decoder CPU: " << result << std::endl;
+        }
+        for (auto * engine : {hymt.get(), opus.get(), french.get()}) {
             engine->cancel(); bool rejected = false;
             try { engine->translate("Must not execute after cancellation"); } catch (const std::runtime_error &) { rejected = true; }
             if (!rejected) throw std::runtime_error("Cancellation was ignored");

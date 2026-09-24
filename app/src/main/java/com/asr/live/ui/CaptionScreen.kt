@@ -60,7 +60,7 @@ fun CaptionScreen(vm: CaptionViewModel, hasAudioPermission: Boolean, onRequestPe
             }
             Text("ASR: ${info.shortName} · ${if (info.kind == EngineKind.NEMOTRON) "560 ms · " else "VAD phrases · "}CPU · ${config.threads} threads", style = MaterialTheme.typography.bodySmall)
             Text("Final: ${config.quality.label}", style = MaterialTheme.typography.bodySmall)
-            Text("Provisional: ${if (config.quality == TranslationQuality.ML_KIT) "ML Kit on-device" else if (config.profile.source == "nl") "OPUS-MT nl-en · CPU" else "off"}", style = MaterialTheme.typography.bodySmall)
+            Text("Provisional: ${if (config.quality == TranslationQuality.ML_KIT) "ML Kit on-device" else config.profile.fastBundle?.let { "$it · CPU" } ?: "off"}", style = MaterialTheme.typography.bodySmall)
             Text(if (ready) "Offline ready" else "Required pinned models: ~${vm.downloadMegabytes()} MB${if (config.quality == TranslationQuality.ML_KIT) " + ML Kit language pack" else ""}", style = MaterialTheme.typography.labelMedium)
             if (download is ModelRepository.DownloadState.Running) {
                 val d = download as ModelRepository.DownloadState.Running

@@ -36,7 +36,7 @@ class CaptionSession(
     private val sequence = AtomicLong()
     @Volatile private var fastTranslator: LocalTranslator? = null
     @Volatile private var finalTranslator: LocalTranslator? = null
-    private val fastEnabled = config.quality == TranslationQuality.ML_KIT || config.profile.source == "nl"
+    private val fastEnabled = config.quality == TranslationQuality.ML_KIT || config.profile.fastBundle != null
     private val pcm = PcmBuffer()
     private var lastProvisionalAt = 0L
     private var lastProvisionalText = ""
@@ -169,7 +169,7 @@ class CaptionSession(
     }
     private fun createTranslator(isFinal: Boolean): LocalTranslator {
         if (config.quality == TranslationQuality.ML_KIT) return MlKitTranslator(config.profile.source, config.profile.target)
-        val bundle = if (isFinal) config.quality.bundleId!! else "opus-nl-en"
+        val bundle = if (isFinal) config.quality.bundleId!! else checkNotNull(config.profile.fastBundle)
         val directory = TranslationModels.verify(ctx, bundle)
         return NativeTranslator(if (isFinal) java.io.File(directory, "model.gguf") else directory,
             if (isFinal) minOf(config.threads, 4) else 2, !isFinal, config.profile, config.glossary)

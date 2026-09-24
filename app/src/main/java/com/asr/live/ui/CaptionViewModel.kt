@@ -56,7 +56,7 @@ class CaptionViewModel(app: Application) : AndroidViewModel(app) {
                     runCatching { ModelRepository.translationPresent(cfg.profile.source, cfg.profile.target) }.getOrDefault(false)
                 } else {
                     TranslationModels.present(getApplication(), cfg.quality.bundleId!!) &&
-                        (cfg.profile.source != "nl" || TranslationModels.present(getApplication(), "opus-nl-en"))
+                        (cfg.profile.fastBundle?.let { TranslationModels.present(getApplication(), it) } ?: true)
                 }
             }
             if (_config.value == cfg) _ready.value = ready
@@ -76,7 +76,7 @@ class CaptionViewModel(app: Application) : AndroidViewModel(app) {
                         ModelRepository.prepareTranslation(getApplication(), info, cfg.profile.source, cfg.profile.target)
                 } else {
                     if (!ModelRepository.downloadBundle(getApplication(), cfg.quality.bundleId!!)) return@launch
-                    if (cfg.profile.source == "nl") ModelRepository.downloadBundle(getApplication(), "opus-nl-en")
+                    cfg.profile.fastBundle?.let { ModelRepository.downloadBundle(getApplication(), it) }
                 }
             } finally { _busy.value = false; refreshPresence() }
         }
@@ -86,7 +86,7 @@ class CaptionViewModel(app: Application) : AndroidViewModel(app) {
         var bytes = model().archiveBytes
         if (cfg.correction && cfg.profile.correctionSupported) bytes += ModelCatalog.PARAKEET.archiveBytes
         cfg.quality.bundleId?.let { bytes += TranslationModels.bundle(getApplication(), it).size }
-        if (cfg.quality != TranslationQuality.ML_KIT && cfg.profile.source == "nl") bytes += TranslationModels.bundle(getApplication(), "opus-nl-en").size
+        if (cfg.quality != TranslationQuality.ML_KIT) cfg.profile.fastBundle?.let { bytes += TranslationModels.bundle(getApplication(), it).size }
         return bytes / 1_000_000
     }
     fun toggle() {

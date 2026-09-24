@@ -1,0 +1,38 @@
+name: Model execution smoke
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  native-models:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install host inference runtime
+        run: python -m pip install onnxruntime==1.28.0
+      - name: Build shared translation core
+        run: |
+          ort=$(python -c 'import pathlib,onnxruntime; print(next((pathlib.Path(onnxruntime.__file__).parent/"capi").glob("libonnxruntime.so.*")))')
+          cmake -S app/src/main/cpp -B build/native-smoke -DCMAKE_BUILD_TYPE=Release -DORT_LIBRARY="$ort"
+          cmake --build build/native-smoke --target translation-smoke -j2
+          ln -s "$ort" build/native-smoke/libonnxruntime.so.1
+      - name: Execute pinned translation models
+        env:
+          LD_LIBRARY_PATH: ${{ github.workspace }}/build/native-smoke
+        run: |
+          set -o pipefail
+          python scripts/native_smoke.py --binary build/native-smoke/translation-smoke 2>&1 | tee build/native-smoke-results.txt
+      - name: Execute pinned ASR models
+        run: |
+          python -m pip install sherpa-onnx==1.13.8
+          set -o pipefail
+          python scripts/asr_smoke.py 2>&1 | tee build/asr-smoke-results.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: model-execution-results
+          path: build/*smoke-results.txt

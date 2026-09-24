@@ -38,3 +38,11 @@ Local execution of the released Mandarin audio passed. Four-second VAD phrase
 limits bound work; this is not token-by-token streaming. Nemotron remains an
 explicit broader-coverage Mandarin option and Whisper is a compatibility option.
 Parakeet correction is never enabled for this profile.
+
+OPUS English→French is pinned to Xenova revision
+`28726206f80896b90035bd99cccd5cc1e151f916`; every file digest is in
+`translation-models.json`. Its shared SentencePiece vocabulary has 59,514 entries,
+PAD/decoder-start 59,513 and EOS 0. The decoder has six layers, eight heads, 512
+hidden dimensions. The same merged-decoder KV cache implementation passed two
+consecutive English→French requests. Provisional decoding is greedy; Hy-MT2
+supplies the separately generated final output.

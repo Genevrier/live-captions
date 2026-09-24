@@ -1,0 +1,8 @@
+Hy-MT2 CPU: Good morning. The meeting starts at nine o’clock. (1542 ms)
+Hy-MT2 CPU: Please check for overlay errors on the wafer. (1408 ms)
+Hy-MT2 CPU: Veuillez vérifier la température avant de démarrer la machine. (1895 ms)
+OPUS cached decoder CPU: The temperature of the machine is too high.
+OPUS cached decoder CPU: The temperature of the machine is too high.
+OPUS French cached decoder CPU: La température de la machine est trop élevée.
+OPUS French cached decoder CPU: La température de la machine est trop élevée.
+PASS: three translation directions, decoder caching, context reset, cancellation
