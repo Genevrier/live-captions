@@ -86,3 +86,7 @@ Release signing uses repository secrets `LIVE_CAPTIONS_KEYSTORE_B64`,
 `LIVE_CAPTIONS_STORE_PASSWORD`, and `LIVE_CAPTIONS_KEY_PASSWORD`. The persistent
 key is backed up outside the repository on the operator's machine. Never commit
 the key or its passwords. Use APKs signed with this identity for subsequent updates.
+Both workflows verify the pinned public signing certificate and upload
+`LiveTranslate-MagicV5-v2.2.apk` with its `.apk.sha256` in one artifact.
+See [persistent signing and secret setup](docs/SIGNING.md) for recovery commands
+and the version-code rule for future releases.

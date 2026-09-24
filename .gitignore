@@ -9,3 +9,10 @@ captures/
 .cxx/
 # Fetched on demand by the downloadSherpaAar Gradle task; not committed.
 app/libs/*.aar
+# Release signing material must stay outside Git.
+*.jks
+*.keystore
+*.p12
+*.pfx
+keystore.properties
+signing.properties

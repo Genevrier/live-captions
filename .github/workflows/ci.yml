@@ -24,6 +24,13 @@ jobs:
           java-version: '17'
           cache: gradle
 
+      - name: Prepare persistent signing key
+        env:
+          LIVE_CAPTIONS_KEYSTORE_B64: ${{ secrets.LIVE_CAPTIONS_KEYSTORE_B64 }}
+          LIVE_CAPTIONS_STORE_PASSWORD: ${{ secrets.LIVE_CAPTIONS_STORE_PASSWORD }}
+          LIVE_CAPTIONS_KEY_PASSWORD: ${{ secrets.LIVE_CAPTIONS_KEY_PASSWORD }}
+        run: bash scripts/prepare_signing.sh
+
       - name: Locate Android SDK
         run: |
           echo "ANDROID_HOME=$ANDROID_HOME"
@@ -76,14 +83,6 @@ jobs:
           path: app/libs/sherpa-onnx-qnn-1.13.8.aar
           key: ${{ steps.qnn-cache.outputs.cache-primary-key }}
 
-      - name: Prepare persistent signing key
-        env:
-          KEYSTORE_B64: ${{ secrets.LIVE_CAPTIONS_KEYSTORE_B64 }}
-        run: |
-          test -n "$KEYSTORE_B64"
-          printf '%s' "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/live-captions.jks"
-          echo "LIVE_CAPTIONS_KEYSTORE=$RUNNER_TEMP/live-captions.jks" >> "$GITHUB_ENV"
-
       - name: Build signed release APK and test
         env:
           LIVE_CAPTIONS_STORE_PASSWORD: ${{ secrets.LIVE_CAPTIONS_STORE_PASSWORD }}
@@ -92,33 +91,21 @@ jobs:
           chmod +x gradlew
           ./gradlew :app:testReleaseUnitTest :app:assembleRelease -Pqnn=true --no-daemon --stacktrace --max-workers=2
 
-      - name: Verify installable APK
-        run: |
-          apk=app/build/outputs/apk/release/app-release.apk
-          unzip -t "$apk" | tail -1
-          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose --print-certs "$apk"
-          "$ANDROID_HOME/build-tools/35.0.0/zipalign" -c -P 16 4 "$apk"
-          python3 scripts/verify_apk.py "$apk"
-          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$apk" | head -12
-          unzip -Z1 "$apk" | grep -q '^lib/arm64-v8a/libsherpa-onnx-jni.so$'
-          unzip -Z1 "$apk" | grep -q '^lib/arm64-v8a/libonnxruntime.so$'
-          if unzip -Z1 "$apk" | grep -Eq '^lib/(x86|armeabi-v7a)/'; then exit 1; fi
+      - name: Verify and stage signed APK
+        id: delivery
+        run: bash scripts/stage_release.sh
 
-      - name: Upload APK
+      - name: Remove signing key
+        if: always()
+        run: rm -f "$RUNNER_TEMP/live-captions.jks"
+
+      - name: Upload APK and SHA-256
         uses: actions/upload-artifact@v4
         with:
-          name: live-captions-arm64-release
-          path: app/build/outputs/apk/release/app-release.apk
-          if-no-files-found: error
-
-      - name: Write APK SHA-256
-        run: sha256sum app/build/outputs/apk/release/app-release.apk > app-release.apk.sha256
-
-      - name: Upload checksum
-        uses: actions/upload-artifact@v4
-        with:
-          name: live-captions-arm64-sha256
-          path: app-release.apk.sha256
+          name: ${{ steps.delivery.outputs.artifact_name }}
+          path: |
+            out/LiveTranslate-MagicV5-*.apk
+            out/LiveTranslate-MagicV5-*.apk.sha256
           if-no-files-found: error
 
       - name: Upload unit test reports
