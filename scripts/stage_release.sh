@@ -16,11 +16,15 @@ python3 scripts/verify_apk.py "$apk"
 badging=$("$build_tools/aapt" dump badging "$apk")
 printf '%s\n' "$badging" | sed -n '1,16p'
 grep -F "application-label:'LiveTranslate'" <<< "$badging" >/dev/null
+resources=$("$build_tools/aapt" dump resources "$apk")
+grep -F 'mipmap/ic_launcher_round' <<< "$resources" >/dev/null
 launcher=$(grep '^launchable-activity:' <<< "$badging")
 [[ "$launcher" == *"name='com.asr.live.MainActivity'"* ]]
 [[ "$launcher" == *"label='LiveTranslate'"* ]]
-[[ "$launcher" == *"icon='res/mipmap"* ]]
-grep -E '^application-icon-[^:]+:.*res/mipmap' <<< "$badging" >/dev/null
+[[ "$launcher" == *"icon='res/"* ]]
+for density in 160 240 320 480 640; do
+  grep -E "^application-icon-${density}:'res/[^']+'$" <<< "$badging" >/dev/null
+done
 package=$(printf '%s\n' "$badging" | sed -n "s/^package: name='\([^']*\)'.*/\1/p")
 version=$(printf '%s\n' "$badging" | sed -n "s/^package:.* versionName='\([^']*\)'.*/\1/p")
 test "$package" = com.asr.live
