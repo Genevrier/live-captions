@@ -46,8 +46,12 @@ data class SessionConfig(
 }
 
 /** Presets are explicit; manual model/backend choices remain available afterward. */
-fun SessionConfig.withMode(mode: PerformanceMode): SessionConfig = when (mode) {
-    PerformanceMode.FAST -> copy(performanceMode = mode, modelId = "nemotron-3.5-560ms-int8", quality = TranslationQuality.HY_Q4, correction = false, qnn = false)
-    PerformanceMode.BALANCED -> copy(performanceMode = mode, modelId = "nemotron-3.5-560ms-int8", quality = TranslationQuality.HY_Q8, correction = false, qnn = false)
-    PerformanceMode.MAX_QUALITY -> copy(performanceMode = mode, modelId = "nemotron-3.5-560ms-int8", quality = TranslationQuality.HY_7B_Q6, correction = false, qnn = false)
+fun SessionConfig.withMode(mode: PerformanceMode): SessionConfig {
+    val recognizer = if (profile == Profile.CHINESE_ENGLISH) "qwen3-asr-0.6b-int8" else "nemotron-3.5-560ms-int8"
+    val quality = when (mode) {
+        PerformanceMode.FAST -> TranslationQuality.HY_Q4
+        PerformanceMode.BALANCED -> TranslationQuality.HY_Q8
+        PerformanceMode.MAX_QUALITY -> TranslationQuality.HY_7B_Q6
+    }
+    return copy(performanceMode = mode, modelId = recognizer, quality = quality, correction = false, qnn = false)
 }

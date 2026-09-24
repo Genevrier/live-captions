@@ -181,7 +181,7 @@ class CaptionSession(
         if (config.quality == TranslationQuality.ML_KIT) return MlKitTranslator(config.profile.source, config.profile.target)
         val bundle = if (isFinal) config.quality.bundleId!! else checkNotNull(config.profile.fastBundle)
         val modelBytes = TranslationModels.bundle(ctx, bundle).size
-        if (isFinal && modelBytes > 3_000_000_000L && !MemoryUsage.canLoad(ctx, modelBytes))
+        if (isFinal && modelBytes > 3_000_000_000L && !MemoryUsage.canLoad(ctx, modelBytes + info.archiveBytes))
             error("Not enough available RAM for ${config.quality.label} with 2 GiB system headroom; choose a smaller translation model")
         val directory = TranslationModels.verify(ctx, bundle)
         CaptionState.metrics(generation) { it.copy(estimatedModelsKb = (modelBytes + info.archiveBytes) / 1024) }

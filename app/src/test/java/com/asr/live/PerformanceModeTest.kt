@@ -1,6 +1,7 @@
 package com.asr.live
 
 import com.asr.live.pipeline.PerformanceMode
+import com.asr.live.pipeline.Profile
 import com.asr.live.pipeline.SessionConfig
 import com.asr.live.pipeline.TranslationQuality
 import com.asr.live.pipeline.withMode
@@ -21,5 +22,6 @@ class PerformanceModeTest {
         assertEquals(TranslationQuality.HY_7B_Q6, max.quality)
         assertFalse(max.qnn)
         assertFalse(max.correction)
+        assertEquals("qwen3-asr-0.6b-int8", SessionConfig(profile = Profile.CHINESE_ENGLISH).withMode(PerformanceMode.MAX_QUALITY).modelId)
     }
 }

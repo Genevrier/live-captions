@@ -9,9 +9,18 @@ bounded in-memory buffer and is not saved or uploaded.
 
 | Profile | Recognition | Provisional translation | Final translation |
 |---|---|---|---|
-| **Dutch → English (default)** | Nemotron 3.5 0.6B INT8, 560 ms | OPUS-MT nl-en INT8 | Hy-MT2 1.8B Q8_0 |
-| Mandarin → English | Qwen3-ASR 0.6B INT8, VAD phrases up to 4 s | Source transcript while final is pending | Hy-MT2 1.8B Q8_0 |
-| English → French | Nemotron 3.5 0.6B INT8, 560 ms | OPUS-MT en-fr INT8 | Hy-MT2 1.8B Q8_0 |
+| **Dutch → English (default)** | Nemotron 3.5 0.6B INT8, 560 ms | OPUS-MT nl-en INT8 | Hy-MT2 7B Q6_K on Magic V5; 1.8B Q8_0 elsewhere |
+| Mandarin → English | Qwen3-ASR 0.6B INT8, VAD phrases up to 4 s | Source transcript while final is pending | Selected Hy-MT2 7B or 1.8B |
+| English → French | Nemotron 3.5 0.6B INT8, 560 ms | OPUS-MT en-fr INT8 | Selected Hy-MT2 7B or 1.8B |
+
+The Honor Magic V5 starts in **MAX QUALITY** mode: Nemotron 560 ms and Hy-MT2
+7B Q6_K on CPU. FAST and BALANCED presets select smaller Hy-MT2 models. Selecting
+a preset never silently enables an untested accelerator or second-pass recognizer.
+Settings include a sequential on-device translation A/B control for installed
+1.8B Q8, 7B Q4 and 7B Q6 models. Compare outputs with a human reference before
+judging accuracy; latency and memory telemetry alone cannot rank quality.
+The 7B model requires 2 GiB of available system memory beyond its estimated model
+and ASR file sizes; low-memory devices should choose a smaller model explicitly.
 
 All translation defaults use native CPU inference. OPUS uses SentencePiece,
 separate encoder execution and a merged decoder with cached self/cross attention.
@@ -43,7 +52,7 @@ claim that Parakeet is always more accurate.
 - Model downloads use pinned URLs, sizes and SHA-256, temporary files, verified
   installation, retries and progress. Installed models are rehashed before use.
   Settings → **Verify / repair required models** repairs damaged installations.
-- Dutch default download is approximately 2.50 GB; optional correction adds
+- Dutch Magic V5 default download is approximately 6.8 GB; optional correction adds
   487 MB. Model files require additional space during verified installation.
 
 ## CPU, QNN and GPU
@@ -74,7 +83,8 @@ permission. See [overlay and chunk-profile validation](docs/OVERLAY.md).
 Settings → Download / remove models manages pinned model installations. New CPU
 chunk profiles require a successful on-device load/decode test before selection.
 Performance includes model/backend/chunk, latencies, RTF, bounded-queue backlog
-and approximate app-plus-model RAM (PSS, including the QNN process).
+and PSS (including QNN worker), main-process RSS, native and Java heaps,
+estimated model file sizes and available system RAM.
 
 CI builds a persistently signed arm64 APK and runs the unit tests, ZIP integrity,
 signature, manifest, native ABI and 16 KB alignment checks. APK and SHA-256 are
@@ -103,3 +113,11 @@ Both workflows verify the pinned public signing certificate and upload
 `LiveTranslate-MagicV5.apk` with its `.apk.sha256` in one artifact.
 See [persistent signing and secret setup](docs/SIGNING.md) for recovery commands
 and the version-code rule for future releases.
+
+## MAX QUALITY status
+
+Qwen3-ASR 1.7B Dutch endpoint recognition, a Dutch Qwen-versus-Parakeet A/B
+accuracy winner, Hy-MT2 7B Q5, Adreno OpenCL offload and physical-device QNN
+validation are not included in this APK. The 7B model's host load/output smoke
+and the on-device translation A/B control do not establish real-time performance
+on the Honor phone. The app retains bounded queues and the CPU fallback.

@@ -20,6 +20,7 @@ data class ManagedModel(val id: String, val label: String, val bytes: Long, val 
 class CaptionViewModel(app: Application) : AndroidViewModel(app) {
     private val prefs = app.getSharedPreferences("profiles_v2", Context.MODE_PRIVATE)
     private val overlayPrefs = OverlayPreferences(app)
+    private val deviceMode = PerformanceMode.defaultFor(if (android.os.Build.VERSION.SDK_INT >= 31) android.os.Build.SOC_MODEL else null, android.os.Build.MANUFACTURER, android.os.Build.MODEL)
     val overlay = overlayPrefs.state
     fun updateOverlay(options: OverlayOptions) = overlayPrefs.update(options)
     override fun onCleared() { overlayPrefs.close(); super.onCleared() }
@@ -28,11 +29,11 @@ class CaptionViewModel(app: Application) : AndroidViewModel(app) {
     private val _config = MutableStateFlow(SessionConfig(
         profile = Profile.fromId(prefs.getString("profile", null)),
         performanceMode = PerformanceMode.entries.firstOrNull { it.name == prefs.getString("performanceMode", null) }
-            ?: PerformanceMode.defaultFor(android.os.Build.SOC_MODEL, android.os.Build.MANUFACTURER, android.os.Build.MODEL),
+            ?: deviceMode,
         modelId = prefs.getString("model", ModelCatalog.DEFAULT.id) ?: ModelCatalog.DEFAULT.id,
         threads = prefs.getInt("threads", 6).coerceIn(1, 8),
         quality = TranslationQuality.entries.firstOrNull { it.name == prefs.getString("quality", null) }
-            ?: if (PerformanceMode.defaultFor(android.os.Build.SOC_MODEL, android.os.Build.MANUFACTURER, android.os.Build.MODEL) == PerformanceMode.MAX_QUALITY) TranslationQuality.HY_7B_Q6 else TranslationQuality.HY_Q8,
+            ?: if (deviceMode == PerformanceMode.MAX_QUALITY) TranslationQuality.HY_7B_Q6 else TranslationQuality.HY_Q8,
         qnn = prefs.getBoolean("qnn", false),
         correction = prefs.getBoolean("correction", false),
         glossary = prefs.getString("glossary", "") ?: "",
@@ -84,7 +85,7 @@ class CaptionViewModel(app: Application) : AndroidViewModel(app) {
     fun models() = ModelCatalog.ALL.filter { it.supports(_config.value.profile.source) }
     fun selectMode(mode: PerformanceMode) = update(_config.value.withMode(mode))
     fun update(config: SessionConfig) {
-        if (_busy.value || CaptionState.running.value) return
+        if (_busy.value || _benchmarkBusy.value || CaptionState.running.value) return
         val info = ModelCatalog.byId(config.modelId)
         var adjusted = if (config.profile != _config.value.profile) config.copy(modelId = ModelCatalog.defaultFor(config.profile.source).id, correction = config.correction && config.profile.correctionSupported)
             else if (info?.supports(config.profile.source) == true) config else config.copy(modelId = ModelCatalog.defaultFor(config.profile.source).id)
@@ -119,7 +120,7 @@ class CaptionViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
     fun downloadRequired() {
-        if (_busy.value || CaptionState.running.value) return
+        if (_busy.value || _benchmarkBusy.value || CaptionState.running.value) return
         val cfg = _config.value
         _busy.value = true
         viewModelScope.launch {
@@ -169,7 +170,7 @@ class CaptionViewModel(app: Application) : AndroidViewModel(app) {
         } finally { engine.release() }
     }
     fun downloadModel(id: String) {
-        if (_busy.value || CaptionState.running.value || _managed.value.none { it.id == id }) return
+        if (_busy.value || _benchmarkBusy.value || CaptionState.running.value || _managed.value.none { it.id == id }) return
         _busy.value = true
         viewModelScope.launch {
             try {
@@ -184,7 +185,7 @@ class CaptionViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
     fun removeModel(id: String) {
-        if (_busy.value || CaptionState.running.value || _managed.value.none { it.id == id }) return
+        if (_busy.value || _benchmarkBusy.value || CaptionState.running.value || _managed.value.none { it.id == id }) return
         _busy.value = true
         viewModelScope.launch {
             try {
@@ -208,7 +209,7 @@ class CaptionViewModel(app: Application) : AndroidViewModel(app) {
     }
     fun toggle() {
         if (CaptionState.running.value) CaptionService.stop(getApplication())
-        else if (_ready.value && !_busy.value) {
+        else if (_ready.value && !_busy.value && !_benchmarkBusy.value) {
             val cfg = _config.value
             val check = runCatching { com.asr.live.i18n.TranslationPrompt.build(cfg.profile, "", cfg.glossary) }
             if (check.isFailure) CaptionState.setError(check.exceptionOrNull()?.message)
