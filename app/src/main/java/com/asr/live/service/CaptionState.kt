@@ -31,7 +31,7 @@ object CaptionState {
     @Volatile private var generation = -1L
     @Synchronized fun begin(id: Long, config: SessionConfig, modelName: String) {
         generation = id; ledger.start(id); publish()
-        _metrics.value = Performance(asr = modelName, translator = config.quality.label, profile = config.profile.label, threads = config.threads)
+        _metrics.value = Performance(asr = modelName, translator = config.quality.label, profile = config.profile.label, threads = config.threads, chunk = if (config.modelId == com.asr.live.model.ModelCatalog.NEMOTRON.id) "560 ms" else "VAD phrases")
         _error.value = null; setLifecycle(ListeningState.STARTING)
     }
     @Synchronized fun source(id: Long, text: String, endpoint: Boolean, nowMs: Long): Caption? =

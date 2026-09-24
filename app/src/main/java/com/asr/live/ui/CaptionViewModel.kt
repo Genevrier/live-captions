@@ -37,7 +37,8 @@ class CaptionViewModel(app: Application) : AndroidViewModel(app) {
     fun update(config: SessionConfig) {
         if (_busy.value || CaptionState.running.value) return
         val info = ModelCatalog.byId(config.modelId)
-        val adjusted = if (info?.supports(config.profile.source) == true) config else config.copy(modelId = ModelCatalog.DEFAULT.id)
+        val adjusted = if (config.profile != _config.value.profile) config.copy(modelId = ModelCatalog.defaultFor(config.profile.source).id, correction = config.correction && config.profile.correctionSupported)
+            else if (info?.supports(config.profile.source) == true) config else config.copy(modelId = ModelCatalog.defaultFor(config.profile.source).id)
         val previous = _config.value
         _config.value = adjusted
         prefs.edit().putString("profile", adjusted.profile.name).putString("model", adjusted.modelId)

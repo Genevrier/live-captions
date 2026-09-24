@@ -22,3 +22,19 @@ Mandarin is excluded. Only NL/EN endpoint correction is exposed. Local host
 execution passed; runtime admission limits optional work to one utterance,
 RTF <= 0.5, no queued final translations and <=100 ms audio queue. Results over
 3 seconds late are rejected. This is not phone benchmarking or guaranteed accuracy.
+
+## Mandarin recognition
+
+Qwen3-ASR 0.6B INT8 (2026-03-25 sherpa export) is the Mandarin default.
+The archive digest is `393f8a14e2f5fb96746aaab342997a40641001fbd5bf9592a080a8329178ee96`.
+[Qwen3-ASR](https://github.com/QwenLM/Qwen3-ASR) and its model use Apache-2.0.
+The archive README attributes the ONNX export to
+[Wasser1462/Qwen3-ASR-onnx](https://github.com/Wasser1462/Qwen3-ASR-onnx).
+Sherpa 1.13.8 ships the corresponding Android JNI model configuration.
+The runtime receives `setOption("language", "Chinese")` on every offline stream;
+this is the actual decoder prompt API. The app uses 128-bin features and the
+released convolution frontend, encoder, decoder and complete tokenizer directory.
+Local execution of the released Mandarin audio passed. Four-second VAD phrase
+limits bound work; this is not token-by-token streaming. Nemotron remains an
+explicit broader-coverage Mandarin option and Whisper is a compatibility option.
+Parakeet correction is never enabled for this profile.

@@ -36,7 +36,7 @@ class WhisperVadEngine(
                 minSilenceDuration = 0.25f,
                 minSpeechDuration = 0.25f,
                 windowSize = 512,
-                maxSpeechDuration = 20f, // Whisper handles up to 30 s per segment
+                maxSpeechDuration = 4f, // Bound phrase latency for compatibility recognition
             ),
             sampleRate = SAMPLE_RATE,
             numThreads = 1,
@@ -62,16 +62,11 @@ class WhisperVadEngine(
         )
     )
 
-    private var speaking = false
 
     override fun accept(samples: FloatArray) {
         vad.acceptWaveform(samples)
         drain()
-        val s = vad.isSpeechDetected()
-        if (s != speaking) {
-            speaking = s
-            onPartial(if (s) "…" else "")
-        }
+
     }
 
     override fun finish() {

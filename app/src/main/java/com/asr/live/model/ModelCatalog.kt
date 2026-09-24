@@ -3,6 +3,7 @@ package com.asr.live.model
 /** The recognizer architecture a model uses; drives how the engine is built. */
 enum class EngineKind {
     NEMOTRON,
+    QWEN3,
     /** Streaming Zipformer transducer (true low-latency, English). */
     STREAMING_ZIPFORMER,
     /** Offline transducer (Parakeet TDT), VAD-segmented, English. */
@@ -41,10 +42,10 @@ data class ModelInfo(
     /** Files that must exist on disk for the model to be considered installed. */
     val requiredFiles: List<String>
         get() = buildList {
-            add(encoder)
-            add(decoder)
+            if (encoder.isNotEmpty()) add(encoder)
+            if (decoder.isNotEmpty()) add(decoder)
             if (joiner.isNotEmpty()) add(joiner)
-            add(tokens)
+            if (tokens.isNotEmpty()) add(tokens)
             addAll(extraFiles)
         }
 }
@@ -72,6 +73,17 @@ object ModelCatalog {
         decoder = "decoder.int8.onnx",
         joiner = "joiner.int8.onnx",
         sha256 = "c6bf5e0df765f9d5b43bc9e0536d4b4b3e7d40bdf5ecf13e45f134c51c05ae3a",
+    )
+
+    val QWEN3 = ModelInfo(
+        id = "qwen3-asr-0.6b-int8", displayName = "Qwen3-ASR 0.6B INT8",
+        shortName = "Qwen3-ASR", tagline = "Mandarin phrase recognition · CPU · up to 4 s phrases",
+        kind = EngineKind.QWEN3, languages = setOf("zh"),
+        url = REL + "sherpa-onnx-qwen3-asr-0.6B-int8-2026-03-25.tar.bz2",
+        approxMB = 879, archiveBytes = 878702423,
+        sha256 = "393f8a14e2f5fb96746aaab342997a40641001fbd5bf9592a080a8329178ee96",
+        encoder = "encoder.int8.onnx", decoder = "decoder.int8.onnx", tokens = "",
+        extraFiles = listOf("conv_frontend.onnx", "tokenizer/vocab.json", "tokenizer/merges.txt", "tokenizer/tokenizer_config.json"),
     )
 
     val STREAMING = ModelInfo(
@@ -133,8 +145,10 @@ object ModelCatalog {
     )
 
     // Order = recommended first within each tier; small (better) listed before base.
-    val ALL = listOf(NEMOTRON, WHISPER_BASE)
+    val ALL = listOf(NEMOTRON, QWEN3, WHISPER_BASE)
     val DEFAULT = NEMOTRON
+
+    fun defaultFor(language: String) = if (language == "zh") QWEN3 else NEMOTRON
 
     fun byId(id: String?): ModelInfo? = (ALL + PARAKEET).firstOrNull { it.id == id }
 }

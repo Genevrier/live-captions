@@ -7,7 +7,7 @@ import com.asr.live.model.ModelStore
 
 object EngineFactory {
     /**
-     * @param language Whisper source-language hint (ISO code) or "" for auto; ignored by English engines.
+     * @param language Source language; passed to model-specific runtime prompting.
      * @param whisperTask "transcribe" or "translate" (Whisper-only).
      */
     fun create(
@@ -25,6 +25,7 @@ object EngineFactory {
                 StreamingEngine(dir, info, onPartial, onFinal, language, threads)
             EngineKind.NEMOTRON ->
                 StreamingEngine(dir, info, onPartial, onFinal, language, threads)
+            EngineKind.QWEN3 -> QwenVadEngine(dir, ModelStore.vadPath(ctx), threads, onFinal)
             EngineKind.OFFLINE_PARAKEET ->
                 OfflineVadEngine(dir, ModelStore.vadPath(ctx), info, onPartial, onFinal)
             EngineKind.WHISPER ->
