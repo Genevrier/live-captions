@@ -185,7 +185,7 @@ fun CaptionScreen(vm: CaptionViewModel, hasAudioPermission: Boolean, onRequestPe
             Text("Runs installed 1.8B Q8, 7B Q4 and 7B Q6 sequentially. Compare output against a human reference; host or phone timing alone does not establish translation accuracy.", style = MaterialTheme.typography.bodySmall)
             OutlinedTextField(benchmarkText, { benchmarkText = it.take(1000) }, label = { Text("Source sentence") }, enabled = stopped && !benchmarkBusy)
             TextButton(onClick = { vm.benchmarkTranslation(benchmarkText) }, enabled = stopped && !busy && !benchmarkBusy) { Text(if (benchmarkBusy) "Benchmarking…" else "Run A/B translation") }
-            benchmark.forEach { result -> Text("${result.model}: ${result.error ?: "${result.elapsedMs} ms · ${result.output}"}", style = MaterialTheme.typography.bodySmall) }
+            benchmark.forEach { result -> Text("${result.model}: ${result.error ?: "${result.elapsedMs} ms · RSS ${result.rssMiB} MiB · available ${result.availableMiB} MiB · ${result.output}"}", style = MaterialTheme.typography.bodySmall) }
             Text("Audio stays in memory and is never uploaded or saved.", style = MaterialTheme.typography.bodySmall)
         }
     })

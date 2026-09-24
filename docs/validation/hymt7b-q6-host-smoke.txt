@@ -1,0 +1,10 @@
+Host CPU execution, 2026-09-24, using the repository's pinned llama.cpp native translation bridge.
+Official Tencent Hy-MT2-7B-GGUF revision ab8472660ac61fac25f1af43fac2599d52a8a775.
+Q6_K file: 6,164,482,720 bytes; SHA-256 88ef0aba59952a4cfe4be36cb5baf797dbb370bc60e9dcbd7297036021e52831 verified.
+Native translation-smoke output:
+  Dutch -> English: Good morning. The meeting starts at nine o’clock. (4130 ms)
+  Chinese -> English with glossary: Please check the overlay error on the wafer. (4749 ms)
+  English -> French: Veuillez vérifier la température avant de démarrer la machine. (3988 ms)
+  OPUS nl-en and en-fr cached-decoder repeats passed; cancellation and context reset passed.
+PASS: three translation directions, decoder caching, context reset, cancellation.
+These are short host samples, not Magic V5 translation-accuracy, sustained-latency, or GPU results.

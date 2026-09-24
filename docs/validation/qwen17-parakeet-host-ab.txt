@@ -1,0 +1,12 @@
+Host-only exploratory A/B, 2026-09-24. This is one Google FLEURS nl_nl test utterance, not a phone accuracy benchmark.
+Input: /tmp/live-captions-dutch.wav, 16 kHz mono, ~6.48 s. Audio/model weights are not committed.
+Qwen3-ASR 1.7B ggml-org GGUF revision 36a678687ba7d07a74ca70ccb0e36902e005fb80:
+  Q8_0 model SHA-256 58e22d0532d4eacaf034cfac17a6fed159f37c41390c710186783be439d1fc57
+  Q8_0 projector SHA-256 46c1d533af3f354ceb37ce855dbceff7da7fa7cf1e6a523df3b13440bd164c0d
+  pinned llama.cpp multimodal CLI, 8 CPU threads, no GPU: 6.17 s total wall time including model load; peak RSS ~9.6 GiB.
+  Output: Volgens Angell 2006 kunnen organisaties beter presteren met een aanpak op basis van het continue model.
+Parakeet TDT 0.6B v3 INT8 sherpa-onnx, 4 CPU threads, already-loaded model: 0.179 s decode.
+  Output: Volgens Angel 2006 kunnen organisaties beter presteren met een aanpak op basis van het continuummodel.
+The timing is not directly comparable because Qwen includes model loading and Parakeet does not.
+Neither output is treated as ground truth. No Dutch WER conclusion is drawn from one sample.
+The Qwen CLI labels audio support experimental; the Android in-memory PCM path and coexistence with Hy-MT2 7B are unvalidated.

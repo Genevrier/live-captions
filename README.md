@@ -118,6 +118,6 @@ and the version-code rule for future releases.
 
 Qwen3-ASR 1.7B Dutch endpoint recognition, a Dutch Qwen-versus-Parakeet A/B
 accuracy winner, Hy-MT2 7B Q5, Adreno OpenCL offload and physical-device QNN
-validation are not included in this APK. The 7B model's host load/output smoke
+validation are not included in this APK. The 7B Q4 and Q6 models' host load/output smoke
 and the on-device translation A/B control do not establish real-time performance
 on the Honor phone. The app retains bounded queues and the CPU fallback.

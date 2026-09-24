@@ -13,7 +13,8 @@ import kotlinx.coroutines.flow.asStateFlow
 import com.asr.live.overlay.OverlayPreferences
 import com.asr.live.overlay.OverlayOptions
 
-data class TranslationBenchmark(val model: String, val elapsedMs: Long, val output: String, val error: String? = null)
+data class TranslationBenchmark(val model: String, val elapsedMs: Long, val output: String, val error: String? = null,
+                                val rssMiB: Long? = null, val availableMiB: Long? = null)
 
 data class ManagedModel(val id: String, val label: String, val bytes: Long, val installed: Boolean, val selectable: Boolean = false, val stored: Boolean = installed)
 
@@ -71,7 +72,10 @@ class CaptionViewModel(app: Application) : AndroidViewModel(app) {
                             com.asr.live.i18n.NativeTranslator(java.io.File(dir, "model.gguf"), 4, false, profile, glossary).use { engine ->
                                 val start = android.os.SystemClock.elapsedRealtime()
                                 val output = engine.translate(source)
-                                TranslationBenchmark(quality.label, android.os.SystemClock.elapsedRealtime() - start, output)
+                                val elapsed = android.os.SystemClock.elapsedRealtime() - start
+                                val memory = com.asr.live.service.MemoryUsage.sample(getApplication())
+                                TranslationBenchmark(quality.label, elapsed, output, rssMiB = memory.rssKb / 1024,
+                                    availableMiB = memory.availableKb / 1024)
                             }
                         }.getOrElse { TranslationBenchmark(quality.label, 0, "", it.message ?: "Benchmark failed") }
                     }
