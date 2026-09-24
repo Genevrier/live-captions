@@ -7,6 +7,7 @@ import com.asr.live.pipeline.TranslationQuality
 import com.asr.live.pipeline.withMode
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class PerformanceModeTest {
@@ -17,12 +18,15 @@ class PerformanceModeTest {
         assertEquals(PerformanceMode.BALANCED, PerformanceMode.defaultFor("SM8750", "other", "Magic V5"))
     }
 
-    @Test fun maxQualityDoesNotClaimUnvalidatedAccelerationOrCorrection() {
+    @Test fun maxQualityEnablesSupportedEndpointCorrectionWithoutImplyingAcceleratorAvailability() {
         val max = SessionConfig().withMode(PerformanceMode.MAX_QUALITY)
         assertEquals("nemotron-3.5-560ms-int8", max.modelId)
         assertEquals(TranslationQuality.HY_7B_Q6, max.quality)
         assertFalse(max.qnn)
-        assertFalse(max.correction)
-        assertEquals("qwen3-asr-0.6b-int8", SessionConfig(profile = Profile.CHINESE_ENGLISH).withMode(PerformanceMode.MAX_QUALITY).modelId)
+        assertFalse(max.gpuTranslation)
+        assertTrue(max.correction)
+        val chinese = SessionConfig(profile = Profile.CHINESE_ENGLISH).withMode(PerformanceMode.MAX_QUALITY)
+        assertEquals("qwen3-asr-0.6b-int8", chinese.modelId)
+        assertFalse(chinese.correction)
     }
 }
