@@ -4,6 +4,11 @@ import com.asr.live.model.ModelCatalog
 import org.junit.Assert.*
 import org.junit.Test
 class BackendPolicyTest {
+    @Test fun languagePromptsUseVerifiedNemotronDictionaryKeys() {
+        assertEquals("zh-CN", BackendPolicy.nemotronLanguage("zh"))
+        assertEquals("nl-NL", BackendPolicy.nemotronLanguage("nl"))
+        assertEquals("en-US", BackendPolicy.nemotronLanguage("en"))
+    }
     @Test fun qnnRequiresExactTargetAndCompiledSupport() {
         assertTrue(BackendPolicy.qnnEligible("SM8750", true))
         assertFalse(BackendPolicy.qnnEligible("SM8650", true))

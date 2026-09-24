@@ -49,7 +49,7 @@ class StreamingEngine(
     )
 
     private val stream = recognizer.createStream().also {
-        if (info.kind == com.asr.live.model.EngineKind.NEMOTRON) it.setOption("language", language)
+        if (info.kind == com.asr.live.model.EngineKind.NEMOTRON) it.setOption("language", com.asr.live.pipeline.BackendPolicy.nemotronLanguage(language))
     }
     private val qnnLibrariesForCallbacks = qnnLibraries
     private var lastPartial = ""
@@ -62,7 +62,7 @@ class StreamingEngine(
         if (recognizer.isEndpoint(stream)) {
             onFinal(text)
             recognizer.reset(stream)
-            stream.setOption("language", language)
+            stream.setOption("language", com.asr.live.pipeline.BackendPolicy.nemotronLanguage(language))
             lastPartial = ""
             if (qnnLibrariesForCallbacks == null) onPartial("")
         } else if (text != lastPartial) {

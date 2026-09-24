@@ -23,7 +23,7 @@ are a separate installation and are never supplied to QNN's context loader.
 
 The QNN API gets `provider="qnn"`, `modelType="nemo_transducer"`, absolute HTP
 and System library paths, and the three comma-separated context paths. Every
-stream receives `setOption("language", "nl"/"en"/"zh")`, also after reset.
+stream receives `setOption("language", "nl-NL"/"en-US"/"zh-CN")`, also after reset.
 [The upstream implementation](https://github.com/k2-fsa/sherpa-onnx/blob/v1.13.8/sherpa-onnx/csrc/qnn/online-recognizer-nemo-transducer-qnn-impl.h)
 reads this option and passes its prompt ID to the encoder.
 [The exporter](https://github.com/k2-fsa/sherpa-onnx/blob/v1.13.8/.github/workflows/export-nemotron-3.5-asr-streaming-0.6b-qnn.yaml)
