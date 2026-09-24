@@ -154,6 +154,20 @@
           "sha256": "333b244bce16023df04541c8cf9fd60aec9b0569da393c4b831d561897b0bda8"
         }
       ]
+    },
+    {
+      "id": "silero-vad",
+      "label": "Silero VAD",
+      "license": "MIT",
+      "revision": "9e2449e1087496d8d4caba907f23e0bd3f78d91fa552479bb9c23ac09cbb1fd6",
+      "files": [
+        {
+          "path": "model.onnx",
+          "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/silero_vad.onnx",
+          "size": 643854,
+          "sha256": "9e2449e1087496d8d4caba907f23e0bd3f78d91fa552479bb9c23ac09cbb1fd6"
+        }
+      ]
     }
   ]
 }

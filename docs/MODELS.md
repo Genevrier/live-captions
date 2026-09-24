@@ -53,3 +53,8 @@ and extracted audio hashes are pinned in `scripts/asr_smoke.py`. Nemotron produc
 multiple real partial transcripts and a Dutch final with `language=nl`.
 This single-sample loading/streaming test is not an accuracy benchmark. Sample
 weights/audio remain outside Git and the APK.
+
+Silero VAD is also downloaded through the verified model flow for phrase ASR; it
+is no longer tracked as a weight in the current Git tree. The 643,854-byte upstream
+asset has SHA-256 `9e2449e1087496d8d4caba907f23e0bd3f78d91fa552479bb9c23ac09cbb1fd6`
+and is identical to the previous bundled model. Existing Git history is preserved.

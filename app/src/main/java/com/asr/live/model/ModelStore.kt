@@ -32,11 +32,5 @@ object ModelStore {
         val manifest = Properties().apply { File(d, "verified.properties").inputStream().use { load(it) } }
         for (name in info.requiredFiles) VerifiedFiles.check(File(d, name), manifest.getProperty("size.$name").toLong(), manifest.getProperty("sha.$name"))
     }
-    fun vadPath(ctx: Context): String {
-        val out = File(ctx.filesDir, "silero_vad.onnx")
-        if (!out.exists() || out.length() == 0L) ctx.assets.open("silero_vad.onnx").use { input ->
-            out.outputStream().use { input.copyTo(it) }
-        }
-        return out.absolutePath
-    }
+    fun vadPath(ctx: Context): String = File(TranslationModels.verify(ctx, "silero-vad"), "model.onnx").absolutePath
 }

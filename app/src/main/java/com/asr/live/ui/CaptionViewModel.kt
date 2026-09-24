@@ -53,7 +53,7 @@ class CaptionViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             val ready = withContext(Dispatchers.IO) {
                 val info = ModelCatalog.byId(cfg.modelId) ?: ModelCatalog.DEFAULT
-                ModelStore.isPresent(getApplication(), info) && (!cfg.qnn || info.kind != EngineKind.NEMOTRON || ModelStore.isPresent(getApplication(), ModelCatalog.NEMOTRON_QNN)) && (!cfg.correction || !cfg.profile.correctionSupported || ModelStore.isPresent(getApplication(), ModelCatalog.PARAKEET)) && if (cfg.quality == TranslationQuality.ML_KIT) {
+                ModelStore.isPresent(getApplication(), info) && (!info.requiresVad || TranslationModels.present(getApplication(), "silero-vad")) && (!cfg.qnn || info.kind != EngineKind.NEMOTRON || ModelStore.isPresent(getApplication(), ModelCatalog.NEMOTRON_QNN)) && (!cfg.correction || !cfg.profile.correctionSupported || ModelStore.isPresent(getApplication(), ModelCatalog.PARAKEET)) && if (cfg.quality == TranslationQuality.ML_KIT) {
                     runCatching { ModelRepository.translationPresent(cfg.profile.source, cfg.profile.target) }.getOrDefault(false)
                 } else {
                     TranslationModels.present(getApplication(), cfg.quality.bundleId!!) &&
@@ -70,6 +70,7 @@ class CaptionViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             try {
                 val info = ModelCatalog.byId(cfg.modelId) ?: ModelCatalog.DEFAULT
+                if (info.requiresVad && !ModelRepository.downloadBundle(getApplication(), "silero-vad")) return@launch
                 if (!ModelRepository.download(getApplication(), info)) return@launch
                 if (cfg.qnn && info.kind == EngineKind.NEMOTRON && !ModelRepository.download(getApplication(), ModelCatalog.NEMOTRON_QNN)) return@launch
                 if (cfg.correction && cfg.profile.correctionSupported && !ModelRepository.download(getApplication(), ModelCatalog.PARAKEET)) return@launch
@@ -86,6 +87,7 @@ class CaptionViewModel(app: Application) : AndroidViewModel(app) {
     fun downloadMegabytes(): Long {
         val cfg = _config.value
         var bytes = model().archiveBytes
+        if (model().requiresVad) bytes += TranslationModels.bundle(getApplication(), "silero-vad").size
         if (cfg.qnn && model().kind == EngineKind.NEMOTRON) bytes += ModelCatalog.NEMOTRON_QNN.archiveBytes
         if (cfg.correction && cfg.profile.correctionSupported) bytes += ModelCatalog.PARAKEET.archiveBytes
         cfg.quality.bundleId?.let { bytes += TranslationModels.bundle(getApplication(), it).size }

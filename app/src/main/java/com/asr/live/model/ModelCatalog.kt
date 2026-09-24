@@ -36,6 +36,7 @@ data class ModelInfo(
     val languages: Set<String> = setOf("en"),
     val archiveBytes: Long = 0,
 ) {
+    val requiresVad get() = kind in setOf(EngineKind.QWEN3, EngineKind.WHISPER, EngineKind.OFFLINE_PARAKEET)
     fun supports(language: String) = language in languages
     val isMultilingual: Boolean get() = languages.size > 1
 

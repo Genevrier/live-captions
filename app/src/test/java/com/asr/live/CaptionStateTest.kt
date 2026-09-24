@@ -9,6 +9,9 @@ class CaptionStateTest {
     @Test fun routingIsExplicit() {
         assertEquals(ModelCatalog.QWEN3, ModelCatalog.defaultFor("zh"))
         assertTrue(ModelCatalog.QWEN3.supports("zh"))
+        assertTrue(ModelCatalog.QWEN3.requiresVad)
+        assertTrue(ModelCatalog.WHISPER_BASE.requiresVad)
+        assertFalse(ModelCatalog.NEMOTRON.requiresVad)
         assertFalse(ModelCatalog.QWEN3.supports("nl"))
         assertEquals("nl", Profile.DUTCH_ENGLISH.source)
         assertEquals("en", Profile.DUTCH_ENGLISH.target)
