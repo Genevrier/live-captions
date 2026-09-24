@@ -1,0 +1,103 @@
+{
+  "schema": 1,
+  "bundles": [
+    {
+      "id": "hymt2-Q8_0",
+      "label": "Hy-MT2 1.8B Q8_0",
+      "license": "Apache-2.0",
+      "revision": "a0c709d9fac510f2c807aa3af52872340dc37a4a",
+      "files": [
+        {
+          "path": "model.gguf",
+          "url": "https://huggingface.co/tencent/Hy-MT2-1.8B-GGUF/resolve/a0c709d9fac510f2c807aa3af52872340dc37a4a/Hy-MT2-1.8B-Q8_0.gguf",
+          "size": 1908528192,
+          "sha256": "5c3fe0b1408a5ceb0143184ef247b11b579c525f4b02b060e6c851bb76fef1a4"
+        }
+      ]
+    },
+    {
+      "id": "hymt2-Q6_K",
+      "label": "Hy-MT2 1.8B Q6_K",
+      "license": "Apache-2.0",
+      "revision": "a0c709d9fac510f2c807aa3af52872340dc37a4a",
+      "files": [
+        {
+          "path": "model.gguf",
+          "url": "https://huggingface.co/tencent/Hy-MT2-1.8B-GGUF/resolve/a0c709d9fac510f2c807aa3af52872340dc37a4a/Hy-MT2-1.8B-Q6_K.gguf",
+          "size": 1474785120,
+          "sha256": "d98fe604dec1f28f58f80d7d560f7177e584d3b8e5835862687660e5ff97cb40"
+        }
+      ]
+    },
+    {
+      "id": "hymt2-Q4_K_M",
+      "label": "Hy-MT2 1.8B Q4_K_M",
+      "license": "Apache-2.0",
+      "revision": "a0c709d9fac510f2c807aa3af52872340dc37a4a",
+      "files": [
+        {
+          "path": "model.gguf",
+          "url": "https://huggingface.co/tencent/Hy-MT2-1.8B-GGUF/resolve/a0c709d9fac510f2c807aa3af52872340dc37a4a/Hy-MT2-1.8B-Q4_K_M.gguf",
+          "size": 1133080448,
+          "sha256": "dc5f44fcf1fa496ee7ad725982c0c8c553a4de00259b53af84c4b89fb0c06699"
+        }
+      ]
+    },
+    {
+      "id": "opus-nl-en",
+      "label": "OPUS-MT Dutch → English INT8",
+      "license": "Apache-2.0",
+      "revision": "82c42d95d1508037cbe7172d85fd4e940a2f3584",
+      "files": [
+        {
+          "path": "config.json",
+          "url": "https://huggingface.co/Xenova/opus-mt-nl-en/resolve/82c42d95d1508037cbe7172d85fd4e940a2f3584/config.json",
+          "size": 1376,
+          "sha256": "e03f36d5475954f1c09b08d0da68d6ea06a051e299a399e740554ed768d2a99c"
+        },
+        {
+          "path": "generation_config.json",
+          "url": "https://huggingface.co/Xenova/opus-mt-nl-en/resolve/82c42d95d1508037cbe7172d85fd4e940a2f3584/generation_config.json",
+          "size": 293,
+          "sha256": "b11b1ae60dbb7656d021197a8883e81004dbdb74652df9d113f2efe2ca0dd974"
+        },
+        {
+          "path": "tokenizer_config.json",
+          "url": "https://huggingface.co/Xenova/opus-mt-nl-en/resolve/82c42d95d1508037cbe7172d85fd4e940a2f3584/tokenizer_config.json",
+          "size": 280,
+          "sha256": "7e7b5a6712709169fe3bcd7fe1bfb851310e09b4ef70a7e39b176de30e420657"
+        },
+        {
+          "path": "source.spm",
+          "url": "https://huggingface.co/Xenova/opus-mt-nl-en/resolve/82c42d95d1508037cbe7172d85fd4e940a2f3584/source.spm",
+          "size": 813866,
+          "sha256": "f538d23d4b30641cd97c608d2a83890d503aa1286a5560f19ef949404a786e94"
+        },
+        {
+          "path": "target.spm",
+          "url": "https://huggingface.co/Xenova/opus-mt-nl-en/resolve/82c42d95d1508037cbe7172d85fd4e940a2f3584/target.spm",
+          "size": 789525,
+          "sha256": "d05781fde84b8793191528a7a176e1b17f96265388f602379ee6ae3139f59141"
+        },
+        {
+          "path": "vocab.json",
+          "url": "https://huggingface.co/Xenova/opus-mt-nl-en/resolve/82c42d95d1508037cbe7172d85fd4e940a2f3584/vocab.json",
+          "size": 1794274,
+          "sha256": "b1fba91c620564d90848c5f77b03f13d17949790f8e7c7741e4a8ea13b8b0d91"
+        },
+        {
+          "path": "encoder.onnx",
+          "url": "https://huggingface.co/Xenova/opus-mt-nl-en/resolve/82c42d95d1508037cbe7172d85fd4e940a2f3584/onnx/encoder_model_quantized.onnx",
+          "size": 53937566,
+          "sha256": "7b8b1e9071bed8e2394e3bd2f65b952700b1dd1293d087141134c8bac018653b"
+        },
+        {
+          "path": "decoder.onnx",
+          "url": "https://huggingface.co/Xenova/opus-mt-nl-en/resolve/82c42d95d1508037cbe7172d85fd4e940a2f3584/onnx/decoder_model_merged_quantized.onnx",
+          "size": 61258736,
+          "sha256": "ad4df9a08f16952c0d9ee06807f54d62fcd07a9109c2c0b8ea05a4422d7bf4d7"
+        }
+      ]
+    }
+  ]
+}

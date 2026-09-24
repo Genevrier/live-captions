@@ -10,16 +10,18 @@ plugins {
 android {
     namespace = "com.asr.live"
     compileSdk = 35
+    ndkVersion = "28.2.13676358"
 
     defaultConfig {
         applicationId = "com.asr.live"
         minSdk = 29
         targetSdk = 35
-        versionCode = 2
-        versionName = "2.0"
+        versionCode = 3
+        versionName = "2.1"
 
         // Honor Magic V5 uses arm64-v8a.
         ndk { abiFilters += "arm64-v8a" }
+        externalNativeBuild { cmake { arguments += "-DANDROID_STL=c++_shared" } }
     }
 
     signingConfigs {
@@ -55,6 +57,7 @@ android {
     buildFeatures {
         compose = true
     }
+    externalNativeBuild { cmake { path = file("src/main/cpp/CMakeLists.txt"); version = "3.22.1" } }
     packaging {
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
@@ -62,6 +65,7 @@ android {
         // ONNX Runtime / sherpa-onnx .so files must stay loadable.
         jniLibs {
             useLegacyPackaging = false
+            pickFirsts += "**/libonnxruntime.so"
         }
     }
 }
@@ -117,3 +121,14 @@ val downloadSherpaAar by tasks.registering {
     }
 }
 tasks.named("preBuild") { dependsOn(downloadSherpaAar) }
+
+val extractSherpaOrt by tasks.registering(Copy::class) {
+    dependsOn(downloadSherpaAar)
+    from(zipTree(layout.projectDirectory.file("libs/sherpa-onnx-1.13.8.aar"))) {
+        include("jni/arm64-v8a/libonnxruntime.so")
+    }
+    into(layout.buildDirectory.dir("ort"))
+}
+tasks.configureEach {
+    if (name.startsWith("configureCMake") || name.startsWith("buildCMake")) dependsOn(extractSherpaOrt)
+}

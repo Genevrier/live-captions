@@ -40,7 +40,7 @@ class CaptionService : Service() {
             profile = Profile.fromId(intent.getStringExtra("profile")),
             modelId = intent.getStringExtra("model") ?: ModelCatalog.DEFAULT.id,
             threads = intent.getIntExtra("threads", 6).coerceIn(1, 8),
-            quality = TranslationQuality.entries.firstOrNull { it.name == intent.getStringExtra("quality") } ?: TranslationQuality.ML_KIT,
+            quality = TranslationQuality.entries.firstOrNull { it.name == intent.getStringExtra("quality") } ?: TranslationQuality.HY_Q8,
             correction = intent.getBooleanExtra("correction", false),
             glossary = intent.getStringExtra("glossary") ?: "",
         )

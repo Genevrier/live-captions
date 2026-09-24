@@ -11,6 +11,10 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.withStyle
+import androidx.compose.ui.text.font.FontWeight
 import com.asr.live.model.*
 import com.asr.live.pipeline.*
 import com.asr.live.service.*
@@ -55,8 +59,9 @@ fun CaptionScreen(vm: CaptionViewModel, hasAudioPermission: Boolean, onRequestPe
                 }
             }
             Text("ASR: ${info.shortName} · ${if (info.kind == EngineKind.NEMOTRON) "560 ms · " else ""}CPU · ${config.threads} threads", style = MaterialTheme.typography.bodySmall)
-            Text("Translation: ${config.quality.label}", style = MaterialTheme.typography.bodySmall)
-            Text(if (ready) "Offline ready" else "Required models: ~${info.approxMB} MB ASR + translation", style = MaterialTheme.typography.labelMedium)
+            Text("Final: ${config.quality.label}", style = MaterialTheme.typography.bodySmall)
+            Text("Provisional: ${if (config.quality == TranslationQuality.ML_KIT) "ML Kit on-device" else if (config.profile.source == "nl") "OPUS-MT nl-en · CPU" else "off"}", style = MaterialTheme.typography.bodySmall)
+            Text(if (ready) "Offline ready" else "Required pinned models: ~${vm.downloadMegabytes()} MB${if (config.quality == TranslationQuality.ML_KIT) " + ML Kit language pack" else ""}", style = MaterialTheme.typography.labelMedium)
             if (download is ModelRepository.DownloadState.Running) {
                 val d = download as ModelRepository.DownloadState.Running
                 LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
@@ -75,7 +80,12 @@ fun CaptionScreen(vm: CaptionViewModel, hasAudioPermission: Boolean, onRequestPe
                         MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceVariant)) {
                         Column(Modifier.fillMaxWidth().padding(14.dp)) {
                             Text(caption.translation.ifBlank { "…" }, style = MaterialTheme.typography.headlineSmall)
-                            Text(caption.source, style = MaterialTheme.typography.bodyLarge)
+                            Text(buildAnnotatedString {
+                                if (caption.source.startsWith(caption.stableSource)) {
+                                    withStyle(SpanStyle(fontWeight = FontWeight.SemiBold)) { append(caption.stableSource) }
+                                    append(caption.source.removePrefix(caption.stableSource))
+                                } else append(caption.source)
+                            }, style = MaterialTheme.typography.bodyLarge)
                             Text(caption.detail, style = MaterialTheme.typography.labelSmall)
                         }
                     }
@@ -91,7 +101,11 @@ fun CaptionScreen(vm: CaptionViewModel, hasAudioPermission: Boolean, onRequestPe
             Text("CPU threads: ${config.threads}")
             Slider(value = config.threads.toFloat(), onValueChange = { vm.update(config.copy(threads = it.toInt())) }, valueRange = 1f..8f, steps = 6, enabled = stopped && !busy)
             Text("Translation quality")
-            TranslationQuality.entries.forEach { quality -> TextButton(onClick = { vm.update(config.copy(quality = quality)) }, enabled = stopped && !busy) { Text(quality.label) } }
+            TranslationQuality.entries.forEach { quality -> TextButton(onClick = { vm.update(config.copy(quality = quality)) }, enabled = stopped && !busy) { Text((if (quality == config.quality) "✓ " else "") + quality.label) } }
+            if (config.quality != TranslationQuality.ML_KIT) OutlinedTextField(value = config.glossary,
+                onValueChange = { vm.update(config.copy(glossary = it.take(2000))) },
+                enabled = stopped && !busy, label = { Text("Glossary: source -> target") },
+                placeholder = { Text("晶圆 -> wafer\n套刻 -> overlay\n压印 -> imprint\n母模 -> master\n光刻胶 -> resist") }, minLines = 3)
             Text("Correction: off")
             Text("Audio stays in memory and is never uploaded or saved.", style = MaterialTheme.typography.bodySmall)
         }

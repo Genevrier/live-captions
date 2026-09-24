@@ -28,6 +28,29 @@ object ModelRepository {
     private val _state = MutableStateFlow<DownloadState>(DownloadState.Idle)
     val state = _state.asStateFlow()
     private val mutex = Mutex()
+    suspend fun downloadBundle(ctx: Context, id: String): Boolean = withContext(Dispatchers.IO) {
+        mutex.withLock {
+            val bundle = TranslationModels.bundle(ctx, id)
+            val directory = ModelStore.dir(ctx, id).apply { mkdirs() }
+            val job = currentCoroutineContext()[Job]
+            try {
+                for (asset in bundle.files) {
+                    val file = File(directory, asset.path)
+                    if (runCatching { VerifiedFiles.check(file, asset.size, asset.sha256) }.isSuccess) continue
+                    downloadFile(id, asset.url, file, asset.size, asset.sha256, job)
+                }
+                val manifest = java.util.Properties()
+                bundle.files.forEach { manifest.setProperty(it.path, it.sha256) }
+                val temporary = File(directory, "verified.properties.part")
+                temporary.outputStream().use { manifest.store(it, "Verified pinned translation assets") }
+                Files.move(temporary.toPath(), File(directory, "verified.properties").toPath(),
+                    StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING)
+                _state.value = DownloadState.Idle
+                true
+            } catch (t: CancellationException) { _state.value = DownloadState.Idle; throw t }
+            catch (t: Exception) { _state.value = DownloadState.Failed(id, t.message ?: "Model download failed"); false }
+        }
+    }
     suspend fun translationPresent(source: String, target: String): Boolean = withContext(Dispatchers.IO) {
         val installed = Tasks.await(RemoteModelManager.getInstance().getDownloadedModels(TranslateRemoteModel::class.java))
             .map { it.language }.toSet()

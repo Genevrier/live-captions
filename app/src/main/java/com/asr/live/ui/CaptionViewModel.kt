@@ -17,6 +17,8 @@ class CaptionViewModel(app: Application) : AndroidViewModel(app) {
         profile = Profile.fromId(prefs.getString("profile", null)),
         modelId = prefs.getString("model", ModelCatalog.DEFAULT.id) ?: ModelCatalog.DEFAULT.id,
         threads = prefs.getInt("threads", 6).coerceIn(1, 8),
+        quality = TranslationQuality.entries.firstOrNull { it.name == prefs.getString("quality", null) } ?: TranslationQuality.HY_Q8,
+        glossary = prefs.getString("glossary", "") ?: "",
     ))
     val config = _config.asStateFlow()
     private val _ready = MutableStateFlow(false)
@@ -35,10 +37,12 @@ class CaptionViewModel(app: Application) : AndroidViewModel(app) {
         if (_busy.value || CaptionState.running.value) return
         val info = ModelCatalog.byId(config.modelId)
         val adjusted = if (info?.supports(config.profile.source) == true) config else config.copy(modelId = ModelCatalog.DEFAULT.id)
+        val previous = _config.value
         _config.value = adjusted
         prefs.edit().putString("profile", adjusted.profile.name).putString("model", adjusted.modelId)
-            .putInt("threads", adjusted.threads).apply()
-        refreshPresence()
+            .putInt("threads", adjusted.threads).putString("quality", adjusted.quality.name)
+            .putString("glossary", adjusted.glossary).apply()
+        if (previous.profile != adjusted.profile || previous.modelId != adjusted.modelId || previous.quality != adjusted.quality) refreshPresence()
     }
     fun refreshPresence() {
         val cfg = _config.value
@@ -46,8 +50,12 @@ class CaptionViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             val ready = withContext(Dispatchers.IO) {
                 val info = ModelCatalog.byId(cfg.modelId) ?: ModelCatalog.DEFAULT
-                ModelStore.isPresent(getApplication(), info) &&
+                ModelStore.isPresent(getApplication(), info) && if (cfg.quality == TranslationQuality.ML_KIT) {
                     runCatching { ModelRepository.translationPresent(cfg.profile.source, cfg.profile.target) }.getOrDefault(false)
+                } else {
+                    TranslationModels.present(getApplication(), cfg.quality.bundleId!!) &&
+                        (cfg.profile.source != "nl" || TranslationModels.present(getApplication(), "opus-nl-en"))
+                }
             }
             if (_config.value == cfg) _ready.value = ready
         }
@@ -60,14 +68,31 @@ class CaptionViewModel(app: Application) : AndroidViewModel(app) {
             try {
                 val info = ModelCatalog.byId(cfg.modelId) ?: ModelCatalog.DEFAULT
                 if (!ModelRepository.download(getApplication(), info)) return@launch
-                if (!ModelRepository.translationPresent(cfg.profile.source, cfg.profile.target))
-                    ModelRepository.prepareTranslation(getApplication(), info, cfg.profile.source, cfg.profile.target)
+                if (cfg.quality == TranslationQuality.ML_KIT) {
+                    if (!ModelRepository.translationPresent(cfg.profile.source, cfg.profile.target))
+                        ModelRepository.prepareTranslation(getApplication(), info, cfg.profile.source, cfg.profile.target)
+                } else {
+                    if (!ModelRepository.downloadBundle(getApplication(), cfg.quality.bundleId!!)) return@launch
+                    if (cfg.profile.source == "nl") ModelRepository.downloadBundle(getApplication(), "opus-nl-en")
+                }
             } finally { _busy.value = false; refreshPresence() }
         }
     }
+    fun downloadMegabytes(): Long {
+        val cfg = _config.value
+        var bytes = model().archiveBytes
+        cfg.quality.bundleId?.let { bytes += TranslationModels.bundle(getApplication(), it).size }
+        if (cfg.quality != TranslationQuality.ML_KIT && cfg.profile.source == "nl") bytes += TranslationModels.bundle(getApplication(), "opus-nl-en").size
+        return bytes / 1_000_000
+    }
     fun toggle() {
         if (CaptionState.running.value) CaptionService.stop(getApplication())
-        else if (_ready.value) CaptionService.start(getApplication(), _config.value)
+        else if (_ready.value) {
+            val cfg = _config.value
+            val check = runCatching { com.asr.live.i18n.TranslationPrompt.build(cfg.profile, "", cfg.glossary) }
+            if (check.isFailure) CaptionState.setError(check.exceptionOrNull()?.message)
+            else CaptionService.start(getApplication(), cfg)
+        }
     }
     fun clear() = CaptionState.clear()
     fun dismissError() = CaptionState.setError(null)

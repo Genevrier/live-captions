@@ -11,7 +11,10 @@ enum class Profile(val source: String, val target: String, val label: String) {
     }
 }
 
-enum class TranslationQuality(val label: String) {
+enum class TranslationQuality(val label: String, val bundleId: String? = null) {
+    HY_Q8("Hy-MT2 Q8_0 · CPU", "hymt2-Q8_0"),
+    HY_Q6("Hy-MT2 Q6_K · CPU", "hymt2-Q6_K"),
+    HY_Q4("Hy-MT2 Q4_K_M · CPU", "hymt2-Q4_K_M"),
     ML_KIT("ML Kit · local fast translation")
 }
 
@@ -19,7 +22,7 @@ data class SessionConfig(
     val profile: Profile = Profile.DUTCH_ENGLISH,
     val modelId: String = "nemotron-3.5-560ms-int8",
     val threads: Int = 6,
-    val quality: TranslationQuality = TranslationQuality.ML_KIT,
+    val quality: TranslationQuality = TranslationQuality.HY_Q8,
     val correction: Boolean = false,
     val glossary: String = "",
 ) {

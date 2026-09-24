@@ -6,6 +6,7 @@ import com.asr.live.asr.EngineFactory
 import com.asr.live.audio.AudioCapture
 import com.asr.live.i18n.MlKitTranslator
 import com.asr.live.i18n.LocalTranslator
+import com.asr.live.i18n.NativeTranslator
 import com.asr.live.model.*
 import com.asr.live.pipeline.*
 import java.util.concurrent.atomic.AtomicBoolean
@@ -26,6 +27,9 @@ class CaptionSession(
     private val provisional = BoundedMailbox<TranslationRequest>(1)
     private val finals = BoundedMailbox<TranslationRequest>(6)
     private val sequence = AtomicLong()
+    @Volatile private var fastTranslator: LocalTranslator? = null
+    @Volatile private var finalTranslator: LocalTranslator? = null
+    private val fastEnabled = config.quality == TranslationQuality.ML_KIT || config.profile.source == "nl"
     private val pcm = PcmBuffer()
     private var lastProvisionalAt = 0L
     private var lastProvisionalText = ""
@@ -46,6 +50,7 @@ class CaptionSession(
     fun start() { fast.start(); final.start(); asr.start() }
     fun cancel() {
         active.set(false); capture.cancel()
+        fastTranslator?.cancel(); finalTranslator?.cancel()
         audioQueue.close(); provisional.close(); finals.close()
         asr.interrupt(); fast.interrupt(); final.interrupt()
     }
@@ -93,7 +98,7 @@ class CaptionSession(
         if (!active.get() || text.isBlank()) return
         val time = now()
         val row = CaptionState.source(generation, text, false, time) ?: return
-        if (row.stableSource.length < 4 || row.stableSource == lastProvisionalText || time - lastProvisionalAt < 650) return
+        if (!fastEnabled || row.stableSource.length < 4 || row.stableSource == lastProvisionalText || time - lastProvisionalAt < 650) return
         lastProvisionalAt = time; lastProvisionalText = row.stableSource
         provisional.offer(TranslationRequest(row.key, row.stableSource))
         depths()
@@ -105,7 +110,7 @@ class CaptionSession(
         val row = CaptionState.source(generation, text, true, at) ?: return
         lastProvisionalText = ""
         // Endpoint translation also gets a fast pass. A final result has a higher rank.
-        provisional.offer(TranslationRequest(row.key, text, at))
+        if (fastEnabled) provisional.offer(TranslationRequest(row.key, text, at))
         enqueueFinal(TranslationRequest(row.key, text, at))
         depths()
     }
@@ -115,13 +120,20 @@ class CaptionSession(
             CaptionState.metrics(generation) { m -> m.copy(skippedTranslations = m.skippedTranslations + 1) }
         }
     }
-    private fun createTranslator(isFinal: Boolean): LocalTranslator =
-        MlKitTranslator(config.profile.source, config.profile.target)
+    private fun createTranslator(isFinal: Boolean): LocalTranslator {
+        if (config.quality == TranslationQuality.ML_KIT) return MlKitTranslator(config.profile.source, config.profile.target)
+        val bundle = if (isFinal) config.quality.bundleId!! else "opus-nl-en"
+        val directory = TranslationModels.verify(ctx, bundle)
+        return NativeTranslator(if (isFinal) java.io.File(directory, "model.gguf") else directory,
+            if (isFinal) minOf(config.threads, 4) else 2, !isFinal, config.profile, config.glossary)
+    }
     private fun translateLoop(isFinal: Boolean) {
+        if (!isFinal && !fastEnabled) return
         var translator: LocalTranslator? = null
         val queue = if (isFinal) finals else provisional
         try {
             translator = createTranslator(isFinal)
+            if (isFinal) finalTranslator = translator else fastTranslator = translator
             while (active.get()) {
                 val request = queue.poll()
                 if (request == null) { Thread.sleep(20); continue }
@@ -144,7 +156,7 @@ class CaptionSession(
                 catch (t: Exception) { if (isFinal && active.get()) CaptionState.skip(request.key, "Translation failed: ${t.message}") }
             }
         } catch (t: Throwable) { if (active.get()) fail("Translator: ${t.message}") }
-        finally { translator?.close() }
+        finally { translator?.close(); if (isFinal) finalTranslator = null else fastTranslator = null }
     }
     private fun depths() = CaptionState.metrics(generation) {
         it.copy(provisionalDepth = provisional.size(), finalDepth = finals.size())

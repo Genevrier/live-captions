@@ -43,7 +43,7 @@ jobs:
       - name: Install Android SDK packages
         run: |
           yes | "$SDKMANAGER" --licenses >/dev/null || true
-          "$SDKMANAGER" "platforms;android-35" "build-tools;35.0.0"
+          "$SDKMANAGER" "platforms;android-35" "build-tools;35.0.0" "ndk;28.2.13676358" "cmake;3.22.1"
 
       - name: Fetch verified sherpa-onnx runtime
         run: |
@@ -51,6 +51,8 @@ jobs:
           curl -L --fail --retry 3 -o app/libs/sherpa-onnx-1.13.8.aar \
             https://github.com/k2-fsa/sherpa-onnx/releases/download/v1.13.8/sherpa-onnx-1.13.8.aar
           echo '633c24321e06b1fe79feafa03ea16cbc0f8a286641e2da3559bac91bdb13bd96  app/libs/sherpa-onnx-1.13.8.aar' | sha256sum -c -
+          mkdir -p app/build/ort
+          unzip -oq app/libs/sherpa-onnx-1.13.8.aar "jni/arm64-v8a/libonnxruntime.so" -d app/build/ort
 
       - name: Prepare persistent signing key
         env:
@@ -66,13 +68,15 @@ jobs:
           LIVE_CAPTIONS_KEY_PASSWORD: ${{ secrets.LIVE_CAPTIONS_KEY_PASSWORD }}
         run: |
           chmod +x gradlew
-          ./gradlew :app:testDebugUnitTest :app:assembleRelease --no-daemon --stacktrace
+          ./gradlew :app:testReleaseUnitTest :app:assembleRelease --no-daemon --stacktrace --max-workers=2
 
       - name: Verify installable APK
         run: |
           apk=app/build/outputs/apk/release/app-release.apk
           unzip -t "$apk" | tail -1
-          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose "$apk"
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose --print-certs "$apk"
+          "$ANDROID_HOME/build-tools/35.0.0/zipalign" -c -P 16 4 "$apk"
+          python3 scripts/verify_apk.py "$apk"
           "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$apk" | head -12
           unzip -Z1 "$apk" | grep -q '^lib/arm64-v8a/libsherpa-onnx-jni.so$'
           unzip -Z1 "$apk" | grep -q '^lib/arm64-v8a/libonnxruntime.so$'
@@ -100,5 +104,5 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: unit-test-reports
-          path: app/build/test-results/testDebugUnitTest/*.xml
+          path: app/build/test-results/testReleaseUnitTest/*.xml
           if-no-files-found: warn
