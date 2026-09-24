@@ -18,6 +18,7 @@ class CaptionViewModel(app: Application) : AndroidViewModel(app) {
         modelId = prefs.getString("model", ModelCatalog.DEFAULT.id) ?: ModelCatalog.DEFAULT.id,
         threads = prefs.getInt("threads", 6).coerceIn(1, 8),
         quality = TranslationQuality.entries.firstOrNull { it.name == prefs.getString("quality", null) } ?: TranslationQuality.HY_Q8,
+        qnn = prefs.getBoolean("qnn", false),
         correction = prefs.getBoolean("correction", false),
         glossary = prefs.getString("glossary", "") ?: "",
     ))
@@ -43,8 +44,8 @@ class CaptionViewModel(app: Application) : AndroidViewModel(app) {
         _config.value = adjusted
         prefs.edit().putString("profile", adjusted.profile.name).putString("model", adjusted.modelId)
             .putInt("threads", adjusted.threads).putString("quality", adjusted.quality.name)
-            .putString("glossary", adjusted.glossary).putBoolean("correction", adjusted.correction).apply()
-        if (previous.profile != adjusted.profile || previous.modelId != adjusted.modelId || previous.quality != adjusted.quality || previous.correction != adjusted.correction) refreshPresence()
+            .putString("glossary", adjusted.glossary).putBoolean("correction", adjusted.correction).putBoolean("qnn", adjusted.qnn).apply()
+        if (previous.profile != adjusted.profile || previous.modelId != adjusted.modelId || previous.quality != adjusted.quality || previous.correction != adjusted.correction || previous.qnn != adjusted.qnn) refreshPresence()
     }
     fun refreshPresence() {
         val cfg = _config.value
@@ -52,7 +53,7 @@ class CaptionViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             val ready = withContext(Dispatchers.IO) {
                 val info = ModelCatalog.byId(cfg.modelId) ?: ModelCatalog.DEFAULT
-                ModelStore.isPresent(getApplication(), info) && (!cfg.correction || !cfg.profile.correctionSupported || ModelStore.isPresent(getApplication(), ModelCatalog.PARAKEET)) && if (cfg.quality == TranslationQuality.ML_KIT) {
+                ModelStore.isPresent(getApplication(), info) && (!cfg.qnn || info.kind != EngineKind.NEMOTRON || ModelStore.isPresent(getApplication(), ModelCatalog.NEMOTRON_QNN)) && (!cfg.correction || !cfg.profile.correctionSupported || ModelStore.isPresent(getApplication(), ModelCatalog.PARAKEET)) && if (cfg.quality == TranslationQuality.ML_KIT) {
                     runCatching { ModelRepository.translationPresent(cfg.profile.source, cfg.profile.target) }.getOrDefault(false)
                 } else {
                     TranslationModels.present(getApplication(), cfg.quality.bundleId!!) &&
@@ -70,6 +71,7 @@ class CaptionViewModel(app: Application) : AndroidViewModel(app) {
             try {
                 val info = ModelCatalog.byId(cfg.modelId) ?: ModelCatalog.DEFAULT
                 if (!ModelRepository.download(getApplication(), info)) return@launch
+                if (cfg.qnn && info.kind == EngineKind.NEMOTRON && !ModelRepository.download(getApplication(), ModelCatalog.NEMOTRON_QNN)) return@launch
                 if (cfg.correction && cfg.profile.correctionSupported && !ModelRepository.download(getApplication(), ModelCatalog.PARAKEET)) return@launch
                 if (cfg.quality == TranslationQuality.ML_KIT) {
                     if (!ModelRepository.translationPresent(cfg.profile.source, cfg.profile.target))
@@ -84,6 +86,7 @@ class CaptionViewModel(app: Application) : AndroidViewModel(app) {
     fun downloadMegabytes(): Long {
         val cfg = _config.value
         var bytes = model().archiveBytes
+        if (cfg.qnn && model().kind == EngineKind.NEMOTRON) bytes += ModelCatalog.NEMOTRON_QNN.archiveBytes
         if (cfg.correction && cfg.profile.correctionSupported) bytes += ModelCatalog.PARAKEET.archiveBytes
         cfg.quality.bundleId?.let { bytes += TranslationModels.bundle(getApplication(), it).size }
         if (cfg.quality != TranslationQuality.ML_KIT) cfg.profile.fastBundle?.let { bytes += TranslationModels.bundle(getApplication(), it).size }

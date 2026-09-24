@@ -7,6 +7,8 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose")
 }
 
+val qnnEnabled = providers.gradleProperty("qnn").orNull == "true"
+
 android {
     namespace = "com.asr.live"
     compileSdk = 35
@@ -16,8 +18,9 @@ android {
         applicationId = "com.asr.live"
         minSdk = 29
         targetSdk = 35
-        versionCode = 3
-        versionName = "2.1"
+        buildConfigField("boolean", "QNN_ENABLED", qnnEnabled.toString())
+        versionCode = 4
+        versionName = "2.2"
 
         // Honor Magic V5 uses arm64-v8a.
         ndk { abiFilters += "arm64-v8a" }
@@ -56,6 +59,8 @@ android {
     }
     buildFeatures {
         compose = true
+        aidl = true
+        buildConfig = true
     }
     externalNativeBuild { cmake { path = file("src/main/cpp/CMakeLists.txt"); version = "3.22.1" } }
     packaging {
@@ -64,7 +69,7 @@ android {
         }
         // ONNX Runtime / sherpa-onnx .so files must stay loadable.
         jniLibs {
-            useLegacyPackaging = false
+            useLegacyPackaging = qnnEnabled
             pickFirsts += "**/libonnxruntime.so"
         }
     }
@@ -72,7 +77,7 @@ android {
 
 dependencies {
     // Fully-offline on-device ASR runtime (ONNX Runtime + JNI + Kotlin API).
-    implementation(files("libs/sherpa-onnx-1.13.8.aar"))
+    implementation(files(if (qnnEnabled) "libs/sherpa-onnx-qnn-1.13.8.aar" else "libs/sherpa-onnx-1.13.8.aar"))
 
     implementation("androidx.core:core-ktx:1.13.1")
     // Provides the Theme.Material3.DayNight.* XML themes for the Activity window.

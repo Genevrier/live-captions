@@ -74,7 +74,11 @@ class CaptionSession(
             require(info.supports(config.profile.source)) { "${info.shortName} does not support ${config.profile.source}" }
             ModelStore.verify(ctx, info)
             if (!active.get()) return
-            fun create() = EngineFactory.create(ctx, info, config.profile.source, "transcribe", ::partial, ::endpoint, config.threads)
+            fun create(): com.asr.live.asr.AsrEngine = if (config.qnn && info.kind == EngineKind.NEMOTRON)
+                com.asr.live.asr.QnnEngine(ctx, config.profile.source, config.threads, ::partial, ::endpoint,
+                    { backend -> CaptionState.metrics(generation) { it.copy(backend = backend) } },
+                    { pcm.invalidate(); CaptionState.discontinuity(generation) })
+            else EngineFactory.create(ctx, info, config.profile.source, "transcribe", ::partial, ::endpoint, config.threads)
             engine = create()
             if (!active.get()) return
             capture.start()

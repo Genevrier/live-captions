@@ -26,6 +26,7 @@ data class SessionConfig(
     val quality: TranslationQuality = TranslationQuality.HY_Q8,
     val correction: Boolean = false,
     val glossary: String = "",
+    val qnn: Boolean = false,
 ) {
     init { require(threads in 1..8) }
 }

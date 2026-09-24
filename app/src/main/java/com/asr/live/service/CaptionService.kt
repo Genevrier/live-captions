@@ -41,6 +41,7 @@ class CaptionService : Service() {
             modelId = intent.getStringExtra("model") ?: ModelCatalog.DEFAULT.id,
             threads = intent.getIntExtra("threads", 6).coerceIn(1, 8),
             quality = TranslationQuality.entries.firstOrNull { it.name == intent.getStringExtra("quality") } ?: TranslationQuality.HY_Q8,
+            qnn = intent.getBooleanExtra("qnn", false),
             correction = intent.getBooleanExtra("correction", false),
             glossary = intent.getStringExtra("glossary") ?: "",
         )
@@ -115,7 +116,7 @@ class CaptionService : Service() {
             ContextCompat.startForegroundService(ctx, Intent(ctx, CaptionService::class.java)
                 .putExtra("profile", config.profile.name).putExtra("model", config.modelId)
                 .putExtra("threads", config.threads).putExtra("quality", config.quality.name)
-                .putExtra("correction", config.correction).putExtra("glossary", config.glossary))
+                .putExtra("qnn", config.qnn).putExtra("correction", config.correction).putExtra("glossary", config.glossary))
         }
         fun stop(ctx: Context) { ctx.startService(Intent(ctx, CaptionService::class.java).setAction(ACTION_STOP)) }
     }

@@ -1,6 +1,7 @@
 #include "translation.hpp"
 #include <jni.h>
 #include <exception>
+#include <cstdlib>
 
 static std::string utf8(JNIEnv * env, jbyteArray bytes) {
     std::string result(env->GetArrayLength(bytes), '\0');
@@ -22,3 +23,7 @@ extern "C" JNIEXPORT jbyteArray JNICALL Java_com_asr_live_i18n_NativeTranslator_
 }
 extern "C" JNIEXPORT void JNICALL Java_com_asr_live_i18n_NativeTranslator_abort(JNIEnv *, jobject, jlong handle) { reinterpret_cast<TranslationEngine *>(handle)->cancel(); }
 extern "C" JNIEXPORT void JNICALL Java_com_asr_live_i18n_NativeTranslator_free(JNIEnv *, jobject, jlong handle) { delete reinterpret_cast<TranslationEngine *>(handle); }
+
+extern "C" JNIEXPORT void JNICALL Java_com_asr_live_asr_QnnService_configureDspPath(JNIEnv * env, jobject, jbyteArray path) {
+    setenv("ADSP_LIBRARY_PATH", utf8(env, path).c_str(), 1);
+}

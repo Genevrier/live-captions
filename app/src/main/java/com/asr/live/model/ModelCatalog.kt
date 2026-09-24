@@ -75,6 +75,16 @@ object ModelCatalog {
         sha256 = "c6bf5e0df765f9d5b43bc9e0536d4b4b3e7d40bdf5ecf13e45f134c51c05ae3a",
     )
 
+    val NEMOTRON_QNN = ModelInfo(
+        id = "nemotron-3.5-qnn-sm8750-560ms", displayName = "Nemotron 3.5 QNN SM8750",
+        shortName = "Nemotron QNN", tagline = "Experimental SM8750 / HTP v79 · 560 ms",
+        kind = EngineKind.NEMOTRON, languages = setOf("nl", "en", "zh"),
+        url = "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models-qnn-binary-3/sherpa-onnx-qnn-SM8750-binary-nemotron-3.5-asr-streaming-0.6b-560ms.tar.bz2",
+        approxMB = 443, archiveBytes = 442651414,
+        sha256 = "a5af6d03ebba0425074e38d0ebd819fff88ff404fd7340433de30bb515dbbd51",
+        encoder = "encoder.bin", decoder = "decoder.bin", joiner = "joiner.bin",
+    )
+
     val QWEN3 = ModelInfo(
         id = "qwen3-asr-0.6b-int8", displayName = "Qwen3-ASR 0.6B INT8",
         shortName = "Qwen3-ASR", tagline = "Mandarin phrase recognition · CPU · up to 4 s phrases",
@@ -150,5 +160,5 @@ object ModelCatalog {
 
     fun defaultFor(language: String) = if (language == "zh") QWEN3 else NEMOTRON
 
-    fun byId(id: String?): ModelInfo? = (ALL + PARAKEET).firstOrNull { it.id == id }
+    fun byId(id: String?): ModelInfo? = (ALL + PARAKEET + NEMOTRON_QNN).firstOrNull { it.id == id }
 }

@@ -58,7 +58,7 @@ fun CaptionScreen(vm: CaptionViewModel, hasAudioPermission: Boolean, onRequestPe
                     }) }
                 }
             }
-            Text("ASR: ${info.shortName} · ${if (info.kind == EngineKind.NEMOTRON) "560 ms · " else "VAD phrases · "}CPU · ${config.threads} threads", style = MaterialTheme.typography.bodySmall)
+            Text("ASR: ${info.shortName} · ${if (info.kind == EngineKind.NEMOTRON) "560 ms · " else "VAD phrases · "} ${if (!stopped) metrics.backend else if (config.qnn && info.kind == EngineKind.NEMOTRON) "QNN requested · experimental / CPU fallback" else "CPU"} · ${config.threads} threads", style = MaterialTheme.typography.bodySmall)
             Text("Final: ${config.quality.label}", style = MaterialTheme.typography.bodySmall)
             Text("Provisional: ${if (config.quality == TranslationQuality.ML_KIT) "ML Kit on-device" else config.profile.fastBundle?.let { "$it · CPU" } ?: "off"}", style = MaterialTheme.typography.bodySmall)
             Text(if (ready) "Offline ready" else "Required pinned models: ~${vm.downloadMegabytes()} MB${if (config.quality == TranslationQuality.ML_KIT) " + ML Kit language pack" else ""}", style = MaterialTheme.typography.labelMedium)
@@ -97,7 +97,14 @@ fun CaptionScreen(vm: CaptionViewModel, hasAudioPermission: Boolean, onRequestPe
         Column(Modifier.verticalScroll(rememberScrollState())) {
             Text("Recognition model")
             vm.models().forEach { model -> TextButton(onClick = { vm.update(config.copy(modelId = model.id)) }, enabled = stopped && !busy) { Text((if (model.id == config.modelId) "✓ " else "") + model.displayName) } }
-            Text("Backend: CPU")
+            Text("ASR backend")
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Switch(checked = config.qnn, onCheckedChange = { vm.update(config.copy(qnn = it)) },
+                    enabled = stopped && !busy && info.kind == EngineKind.NEMOTRON &&
+                        android.os.Build.VERSION.SDK_INT >= 31 && BackendPolicy.qnnEligible(android.os.Build.SOC_MODEL, com.asr.live.BuildConfig.QNN_ENABLED))
+                Text("QNN/NPU · experimental SM8750")
+            }
+            Text("CPU fallback is always downloaded. QNN has not been tested on this Honor phone.", style = MaterialTheme.typography.bodySmall)
             Text("CPU threads: ${config.threads}")
             Slider(value = config.threads.toFloat(), onValueChange = { vm.update(config.copy(threads = it.toInt())) }, valueRange = 1f..8f, steps = 6, enabled = stopped && !busy)
             Text("Translation quality")

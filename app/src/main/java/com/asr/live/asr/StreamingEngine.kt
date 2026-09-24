@@ -20,6 +20,7 @@ class StreamingEngine(
     private val onFinal: (String) -> Unit,
     private val language: String = "en",
     threads: Int = 6,
+    qnnLibraries: String? = null,
 ) : AsrEngine {
 
     private val recognizer = OnlineRecognizer(
@@ -27,14 +28,19 @@ class StreamingEngine(
             featConfig = FeatureConfig(sampleRate = SAMPLE_RATE, featureDim = 80),
             modelConfig = OnlineModelConfig(
                 transducer = OnlineTransducerModelConfig(
-                    encoder = File(modelDir, info.encoder).absolutePath,
-                    decoder = File(modelDir, info.decoder).absolutePath,
-                    joiner = File(modelDir, info.joiner).absolutePath,
+                    qnnConfig = if (qnnLibraries != null) com.k2fsa.sherpa.onnx.QnnConfig(
+                        backendLib = File(qnnLibraries, "libQnnHtp.so").absolutePath,
+                        systemLib = File(qnnLibraries, "libQnnSystem.so").absolutePath,
+                        contextBinary = listOf("encoder.bin", "decoder.bin", "joiner.bin").joinToString(",") { File(modelDir, it).absolutePath }
+                    ) else com.k2fsa.sherpa.onnx.QnnConfig(),
+                    encoder = if (qnnLibraries == null) File(modelDir, info.encoder).absolutePath else "",
+                    decoder = if (qnnLibraries == null) File(modelDir, info.decoder).absolutePath else "",
+                    joiner = if (qnnLibraries == null) File(modelDir, info.joiner).absolutePath else "",
                 ),
                 tokens = File(modelDir, "tokens.txt").absolutePath,
                 numThreads = threads,
-                provider = "cpu",
-                modelType = if (info.kind == com.asr.live.model.EngineKind.NEMOTRON) "" else "zipformer2",
+                provider = if (qnnLibraries != null) "qnn" else "cpu",
+                modelType = if (qnnLibraries != null) "nemo_transducer" else if (info.kind == com.asr.live.model.EngineKind.NEMOTRON) "" else "zipformer2",
             ),
             endpointConfig = EndpointConfig(),
             enableEndpoint = true,
@@ -45,6 +51,7 @@ class StreamingEngine(
     private val stream = recognizer.createStream().also {
         if (info.kind == com.asr.live.model.EngineKind.NEMOTRON) it.setOption("language", language)
     }
+    private val qnnLibrariesForCallbacks = qnnLibraries
     private var lastPartial = ""
 
     override fun accept(samples: FloatArray) {
@@ -57,7 +64,7 @@ class StreamingEngine(
             recognizer.reset(stream)
             stream.setOption("language", language)
             lastPartial = ""
-            onPartial("")
+            if (qnnLibrariesForCallbacks == null) onPartial("")
         } else if (text != lastPartial) {
             lastPartial = text
             onPartial(text)

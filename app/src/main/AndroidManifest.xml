@@ -29,6 +29,8 @@
             </intent-filter>
         </activity>
 
+        <service android:name=".asr.QnnService" android:exported="false" android:process=":qnn" />
+
         <service
             android:name=".service.CaptionService"
             android:exported="false"
