@@ -73,7 +73,11 @@ object ModelRepository {
     }
     suspend fun download(ctx: Context, info: ModelInfo): Boolean = withContext(Dispatchers.IO) {
         mutex.withLock {
-            if (ModelStore.isPresent(ctx, info)) return@withLock true
+            _state.value = DownloadState.Running(info.id, Phase.VERIFY, 0)
+            if (runCatching { ModelStore.verify(ctx, info) }.isSuccess) {
+                _state.value = DownloadState.Idle
+                return@withLock true
+            }
             val dir = ModelStore.dir(ctx, info.id)
             dir.parentFile!!.mkdirs()
             val archive = File(ctx.cacheDir, info.id + ".archive")

@@ -95,6 +95,7 @@ fun CaptionScreen(vm: CaptionViewModel, hasAudioPermission: Boolean, onRequestPe
     }
     if (settings) AlertDialog(onDismissRequest = { settings = false }, confirmButton = { TextButton(onClick = { settings = false }) { Text("Done") } }, title = { Text("Advanced settings") }, text = {
         Column(Modifier.verticalScroll(rememberScrollState())) {
+            TextButton(onClick = vm::downloadRequired, enabled = stopped && !busy) { Text("Verify / repair required models") }
             Text("Recognition model")
             vm.models().forEach { model -> TextButton(onClick = { vm.update(config.copy(modelId = model.id)) }, enabled = stopped && !busy) { Text((if (model.id == config.modelId) "✓ " else "") + model.displayName) } }
             Text("ASR backend")

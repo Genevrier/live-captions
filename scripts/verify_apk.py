@@ -19,3 +19,18 @@ with zipfile.ZipFile(sys.argv[1]) as apk:
         print('arm64 / 16 KB ELF:', name)
     for required in ['libsherpa-onnx-jni.so', 'libonnxruntime.so', 'liblive-translator.so']:
         assert 'lib/arm64-v8a/' + required in libraries, required
+
+    if 'assets/qnn/libQnnHtpV79Skel.so' in apk.namelist():
+        import hashlib
+        expected = {
+            'lib/arm64-v8a/libQnnHtp.so': '328cf737ca8942c2dde5c6f3e32a113378df2750afb9af1aafdd1775bef59875',
+            'lib/arm64-v8a/libQnnSystem.so': '2d42b6bb2710155fa963ee623ce3c320f8a9896b9cfd8dcc25506affb41ab8ab',
+            'lib/arm64-v8a/libQnnHtpV79Stub.so': 'ea0a4eb083789edf0cbc7ea515553cb5d4d63efabc93edb8854edd14e9629450',
+            'assets/qnn/libQnnHtpV79Skel.so': '24472a899716745ac90e42f8a4fa2538a6324c06f7cb9300be75a457bc1c9fa5',
+        }
+        # Android packaging may strip debug symbols from host libraries; compare DSP asset verbatim.
+        assert hashlib.sha256(apk.read('assets/qnn/libQnnHtpV79Skel.so')).hexdigest() == expected['assets/qnn/libQnnHtpV79Skel.so']
+        for name in expected: assert name in apk.namelist(), name
+        for name in ['assets/licenses/QAIRT-LICENSE.pdf', 'assets/licenses/QAIRT-QNN-NOTICE.txt']:
+            assert name in apk.namelist(), name
+        print('QNN SM8750 / HTP v79 libraries, skeleton integrity and notices verified')
