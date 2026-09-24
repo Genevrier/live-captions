@@ -17,7 +17,7 @@ All translation defaults use native CPU inference. OPUS uses SentencePiece,
 separate encoder execution and a merged decoder with cached self/cross attention.
 Hy-MT2 uses pinned llama.cpp, resets its context per request, and supports an
 optional `source -> target` glossary. Q6_K and Q4_K_M are selectable memory/speed
-alternatives; Q8_0 has execution evidence. ML Kit is an explicitly selected local
+alternatives; all three quantizations have local model execution evidence. ML Kit is an explicitly selected local
 fallback, never a silent substitution. Whisper base is a compatibility ASR option;
 it transcribes source text through the same translation pipeline.
 

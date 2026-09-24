@@ -69,6 +69,13 @@ jobs:
           export ANDROID_NDK="$ANDROID_HOME/ndk/28.2.13676358"
           bash scripts/build_qnn.sh
 
+      - name: Save successful native runtime compilation
+        if: steps.qnn-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: app/libs/sherpa-onnx-qnn-1.13.8.aar
+          key: ${{ steps.qnn-cache.outputs.cache-primary-key }}
+
       - name: Prepare persistent signing key
         env:
           KEYSTORE_B64: ${{ secrets.LIVE_CAPTIONS_KEYSTORE_B64 }}
