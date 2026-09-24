@@ -1,19 +1,88 @@
 # Live Captions for Honor Magic V5
 
-An Android app that listens through the phone microphone and shows on-device speech captions. It targets arm64-v8a / Android 10+ and uses a foreground microphone service. No root, Shizuku, Termux, external microphone, or cloud inference is needed for normal operation after model downloads.
+Local microphone captions for arm64 Android (Android 10+, optimized for Snapdragon
+8 Elite). Download the selected models, tap **Listen**, then **Stop**. No cloud
+inference, external microphone, root, Shizuku or Termux is used. Audio stays in a
+bounded in-memory buffer and is not saved or uploaded.
 
-## Current implementation
+## Profiles
 
-The default recognition model is **Nemotron 3.5 Streaming 0.6B INT8, 560 ms** on CPU (six inference threads). The default language is Dutch and the default target is English. The model is downloaded in the app, verified against the upstream archive SHA-256, and stored in app-private storage. Mandarin can use the multilingual Nemotron model, or the existing multilingual Whisper fallback. The older English-only Zipformer and Parakeet v2 models remain available; they should only be selected for English audio. Parakeet is never used as a Mandarin corrector.
+| Profile | Recognition | Provisional translation | Final translation |
+|---|---|---|---|
+| **Dutch → English (default)** | Nemotron 3.5 0.6B INT8, 560 ms | OPUS-MT nl-en INT8 | Hy-MT2 1.8B Q8_0 |
+| Mandarin → English | Qwen3-ASR 0.6B INT8, VAD phrases up to 4 s | Source transcript while final is pending | Hy-MT2 1.8B Q8_0 |
+| English → French | Nemotron 3.5 0.6B INT8, 560 ms | OPUS-MT en-fr INT8 | Hy-MT2 1.8B Q8_0 |
 
-Translation currently uses **ML Kit on-device translation**, downloaded through the same Download required models action. The UI names this translator explicitly. It is not OPUS-MT. Whisper's direct English translation remains available when a Whisper model is selected. Translation failures are shown instead of silently returning untranslated text. The audio queue is bounded; when decoding falls behind, the oldest audio chunk is discarded and the app shows a dropped-chunk count. Translation runs on a separate worker and delayed results update their caption by segment ID.
+All translation defaults use native CPU inference. OPUS uses SentencePiece,
+separate encoder execution and a merged decoder with cached self/cross attention.
+Hy-MT2 uses pinned llama.cpp, resets its context per request, and supports an
+optional `source -> target` glossary. Q6_K and Q4_K_M are selectable memory/speed
+alternatives; Q8_0 has execution evidence. ML Kit is an explicitly selected local
+fallback, never a silent substitution. Whisper base is a compatibility ASR option;
+it transcribes source text through the same translation pipeline.
 
-These capabilities still need implementation or device validation: pinned OPUS-MT models and decoder caching; a real QNN context and compatible Qualcomm native runtime; optional Parakeet v3 second-pass correction; and a physical Honor Magic V5 test. The app does not expose an NPU switch. CPU inference is labelled CPU.
+Dutch and English can optionally use Parakeet TDT 0.6B v3 for an endpoint second
+hypothesis. It is off by default, limited to one pending utterance, and skipped
+when work falls behind. A valid timely result revises the same caption and is
+translated again. Parakeet is never used for Mandarin. This heuristic is not a
+claim that Parakeet is always more accurate.
 
-## Build and install
+## Reliability and controls
 
-The CI workflow builds and signs an arm64 release APK using a persistent keystore in GitHub Actions secrets, then uploads the APK and SHA-256. The signing keystore is also backed up outside this repository at `~/.local/share/live-captions-signing/release.jks` on the build operator's machine. Never commit it or its passwords. Subsequent CI builds use `LIVE_CAPTIONS_KEYSTORE_B64`, `LIVE_CAPTIONS_STORE_PASSWORD`, and `LIVE_CAPTIONS_KEY_PASSWORD` repository secrets.
+- Independent microphone, recognition, provisional translation, final translation
+  and optional correction workers; bounded queues and explicit overload counters.
+- Stable source prefixes, caption segment IDs and monotonically increasing
+  revisions reject stale results. Provisional, final, revised and skipped states
+  are visible. Source text appears below the prominent translation.
+- Stop/restart invalidates old work. Native resources are released by their owning
+  worker; cancellation does not free an in-use recognizer or translator.
+- Performance panel: recognition time/RTF, translation and correction time,
+  endpoint-to-caption latency, queue depths, audio backlog and dropped work.
+  Endpoint latency starts at the recognizer's endpoint event, not a measured
+  acoustic end-of-speech timestamp.
+- Model downloads use pinned URLs, sizes and SHA-256, temporary files, verified
+  installation, retries and progress. Installed models are rehashed before use.
+  Settings → **Verify / repair required models** repairs damaged installations.
+- Dutch default download is approximately 2.50 GB; optional correction adds
+  487 MB. Model files require additional space during verified installation.
 
-For local builds, use JDK 17 and Android SDK 35. `./gradlew :app:testDebugUnitTest :app:assembleDebug` fetches a checksum-pinned sherpa-onnx v1.13.8 AAR. Install the signed APK from the latest successful CI artifact to retain the signing identity across updates.
+## CPU, QNN and GPU
 
-The Nemotron archive is sourced from the [sherpa-onnx model release](https://github.com/k2-fsa/sherpa-onnx/releases/tag/asr-models) and is not committed to Git. The runtime is sourced from the [sherpa-onnx v1.13.8 release](https://github.com/k2-fsa/sherpa-onnx/releases/tag/v1.13.8).
+CPU is the default. The CI APK also includes a real **experimental QNN/NPU** path
+for **SM8750 only**, using the released 560-ms contexts and matching QAIRT 2.40 /
+HTP v79 libraries. It is opt-in, visibly labeled experimental and isolated in a
+private process. Native failure or timeout falls back to the downloaded CPU model.
+Only a successfully initialized QNN session is labeled QNN; CPU fallback is
+explicit. No 320-ms option is exposed.
+
+Hy-MT2 GPU/OpenCL offload is **not enabled**. See [accelerator investigation,
+provenance and limitations](docs/ACCELERATION.md). No thermal safeguards are
+changed. No physical Honor Magic V5 test or real-time performance guarantee is
+claimed; phone benchmarking is still required, especially under simultaneous ASR,
+translation and correction load.
+
+## Build and validation
+
+CI builds a persistently signed arm64 APK and runs the unit tests, ZIP integrity,
+signature, manifest, native ABI and 16 KB alignment checks. APK and SHA-256 are
+uploaded as workflow artifacts. A separate **Model execution smoke** workflow
+runs the shared native translation core and pinned ASR models on a CPU runner.
+Those results establish model execution on a host, not an Android microphone test.
+[Model pins and provenance](docs/MODELS.md), [recorded validation](docs/validation/).
+
+Build requirements: JDK 17, Android SDK/build-tools 35, NDK 28.2.13676358,
+CMake 3.22.1. A CPU development APK can be built with:
+
+```sh
+./gradlew :app:testDebugUnitTest :app:assembleDebug
+```
+
+For the QNN variant, follow `.github/workflows/ci.yml`: fetch the verified original
+AAR, extract its arm64 ORT library, run `scripts/build_qnn.sh` with ANDROID_NDK set,
+then build with `-Pqnn=true`. Proprietary SDK headers/runtime binaries and model
+weights are downloaded during builds or app setup and are kept out of Git.
+
+Release signing uses repository secrets `LIVE_CAPTIONS_KEYSTORE_B64`,
+`LIVE_CAPTIONS_STORE_PASSWORD`, and `LIVE_CAPTIONS_KEY_PASSWORD`. The persistent
+key is backed up outside the repository on the operator's machine. Never commit
+the key or its passwords. Use APKs signed with this identity for subsequent updates.
