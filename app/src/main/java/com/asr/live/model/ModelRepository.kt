@@ -28,6 +28,14 @@ object ModelRepository {
     private val _state = MutableStateFlow<DownloadState>(DownloadState.Idle)
     val state = _state.asStateFlow()
     private val mutex = Mutex()
+    suspend fun remove(ctx: Context, id: String) = withContext(Dispatchers.IO) {
+        require(id.matches(Regex("[a-zA-Z0-9_.-]+")) && id != "." && id != "..")
+        mutex.withLock {
+            check(!com.asr.live.service.CaptionState.running.value) { "Stop listening before removing models" }
+            val dir = ModelStore.dir(ctx, id)
+            check(!dir.exists() || dir.deleteRecursively()) { "Could not delete model files" }
+        }
+    }
     suspend fun downloadBundle(ctx: Context, id: String): Boolean = withContext(Dispatchers.IO) {
         mutex.withLock {
             val bundle = TranslationModels.bundle(ctx, id)

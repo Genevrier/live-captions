@@ -21,7 +21,8 @@ import com.asr.live.service.*
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun CaptionScreen(vm: CaptionViewModel, hasAudioPermission: Boolean, onRequestPermission: () -> Unit) {
+fun CaptionScreen(vm: CaptionViewModel, hasAudioPermission: Boolean, onRequestPermission: () -> Unit,
+                  hasOverlayPermission: Boolean, onRequestOverlayPermission: () -> Unit) {
     val config by vm.config.collectAsState()
     val ready by vm.ready.collectAsState()
     val busy by vm.busy.collectAsState()
@@ -30,9 +31,12 @@ fun CaptionScreen(vm: CaptionViewModel, hasAudioPermission: Boolean, onRequestPe
     val error by vm.error.collectAsState()
     val download by vm.download.collectAsState()
     val metrics by vm.metrics.collectAsState()
+    val overlay by vm.overlay.collectAsState()
+    val managed by vm.managed.collectAsState()
     var settings by remember { mutableStateOf(false) }
     var profiles by remember { mutableStateOf(false) }
     var diagnostics by remember { mutableStateOf(false) }
+    var modelManager by remember { mutableStateOf(false) }
     val stopped = lifecycle == ListeningState.STOPPED
     val info = ModelCatalog.byId(config.modelId) ?: ModelCatalog.DEFAULT
     Scaffold(topBar = { TopAppBar(title = { Text("Live Captions") }, actions = {
@@ -58,7 +62,7 @@ fun CaptionScreen(vm: CaptionViewModel, hasAudioPermission: Boolean, onRequestPe
                     }) }
                 }
             }
-            Text("ASR: ${info.shortName} · ${if (info.kind == EngineKind.NEMOTRON) "560 ms · " else "VAD phrases · "} ${if (!stopped) metrics.backend else if (config.qnn && info.kind == EngineKind.NEMOTRON) "QNN requested · experimental / CPU fallback" else "CPU"} · ${config.threads} threads", style = MaterialTheme.typography.bodySmall)
+            Text("ASR: ${info.shortName} · ${info.chunkMs?.let { "$it ms" } ?: "VAD phrases"} · ${if (!stopped) metrics.backend else if (config.qnn && info.kind == EngineKind.NEMOTRON) "QNN requested · experimental / CPU fallback" else "CPU"} · ${config.threads} threads", style = MaterialTheme.typography.bodySmall)
             Text("Final: ${config.quality.label}", style = MaterialTheme.typography.bodySmall)
             Text("Provisional: ${if (config.quality == TranslationQuality.ML_KIT) "ML Kit on-device" else config.profile.fastBundle?.let { "$it · CPU" } ?: "off"}", style = MaterialTheme.typography.bodySmall)
             Text(if (ready) "Offline ready" else "Required pinned models: ~${vm.downloadMegabytes()} MB${if (config.quality == TranslationQuality.ML_KIT) " + ML Kit language pack" else ""}", style = MaterialTheme.typography.labelMedium)
@@ -95,7 +99,33 @@ fun CaptionScreen(vm: CaptionViewModel, hasAudioPermission: Boolean, onRequestPe
     }
     if (settings) AlertDialog(onDismissRequest = { settings = false }, confirmButton = { TextButton(onClick = { settings = false }) { Text("Done") } }, title = { Text("Advanced settings") }, text = {
         Column(Modifier.verticalScroll(rememberScrollState())) {
+            Text("Floating captions", style = MaterialTheme.typography.titleMedium)
+            if (!hasOverlayPermission) {
+                Text("Optional: allow display over other apps. In-app captions work without this permission.")
+                TextButton(onClick = onRequestOverlayPermission) { Text("Allow floating captions") }
+            }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Switch(checked = overlay.enabled, onCheckedChange = { vm.updateOverlay(overlay.copy(enabled = it)) }, enabled = hasOverlayPermission)
+                Text("Show while listening")
+            }
+            Text("Background opacity: ${(overlay.opacity * 100).toInt()}%")
+            Slider(value = overlay.opacity, onValueChange = { vm.updateOverlay(overlay.copy(opacity = it)) }, valueRange = 0f..0.9f)
+            Text("Font size: ${overlay.fontSp} sp")
+            Slider(value = overlay.fontSp.toFloat(), onValueChange = { vm.updateOverlay(overlay.copy(fontSp = it.toInt())) }, valueRange = 16f..40f, steps = 23)
+            Text("Translation lines: ${overlay.lines}")
+            Slider(value = overlay.lines.toFloat(), onValueChange = { vm.updateOverlay(overlay.copy(lines = it.toInt())) }, valueRange = 1f..4f, steps = 2)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Switch(checked = overlay.source, onCheckedChange = { vm.updateOverlay(overlay.copy(source = it)) })
+                Text("Show source transcript")
+            }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Switch(checked = overlay.touchThrough, onCheckedChange = { vm.updateOverlay(overlay.copy(touchThrough = it)) })
+                Text("Touch-through")
+            }
+            Text("Turn touch-through off to drag. Android limits window opacity in touch-through mode. Use the listening notification to show or hide captions.", style = MaterialTheme.typography.bodySmall)
+            HorizontalDivider(Modifier.padding(vertical = 12.dp))
             TextButton(onClick = vm::downloadRequired, enabled = stopped && !busy) { Text("Verify / repair required models") }
+            TextButton(onClick = { modelManager = true }) { Text("Download / remove models") }
             Text("Recognition model")
             vm.models().forEach { model -> TextButton(onClick = { vm.update(config.copy(modelId = model.id)) }, enabled = stopped && !busy) { Text((if (model.id == config.modelId) "✓ " else "") + model.displayName) } }
             Text("ASR backend")
@@ -106,6 +136,24 @@ fun CaptionScreen(vm: CaptionViewModel, hasAudioPermission: Boolean, onRequestPe
                 Text("QNN/NPU · experimental SM8750")
             }
             Text("CPU fallback is always downloaded. QNN has not been tested on this Honor phone.", style = MaterialTheme.typography.bodySmall)
+            if (info.kind == EngineKind.NEMOTRON) {
+                Text("Nemotron model chunk")
+                ModelCatalog.chunkProfiles(config.qnn).forEach { model ->
+                    val installed = managed.firstOrNull { it.id == model.id }
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        TextButton(onClick = { vm.update(config.copy(modelId = model.id)) },
+                            modifier = Modifier.weight(1f),
+                            enabled = stopped && !busy && (model.id == config.modelId || installed?.selectable == true)) {
+                            Text((if (model.id == config.modelId) "✓ " else "") + ModelCatalog.chunkLabel(model.chunkMs))
+                        }
+                        if (!config.qnn && installed?.selectable != true) TextButton(onClick = { vm.downloadModel(model.id) }, enabled = stopped && !busy) {
+                            Text(if (installed?.installed == true) "Test load" else "Download")
+                        }
+                    }
+                }
+                Text(if (config.qnn) "Only the 560 ms context is integrated. Other QNN chunk profiles are unavailable until hardware validation."
+                    else "Each size downloads a separate ~475 MB model and passes a CPU load/decode test before selection. 560 ms is the initial default.", style = MaterialTheme.typography.bodySmall)
+            }
             Text("CPU threads: ${config.threads}")
             Slider(value = config.threads.toFloat(), onValueChange = { vm.update(config.copy(threads = it.toInt())) }, valueRange = 1f..8f, steps = 6, enabled = stopped && !busy)
             Text("Translation quality")
@@ -124,14 +172,40 @@ fun CaptionScreen(vm: CaptionViewModel, hasAudioPermission: Boolean, onRequestPe
             Text("Audio stays in memory and is never uploaded or saved.", style = MaterialTheme.typography.bodySmall)
         }
     })
+    if (modelManager) AlertDialog(onDismissRequest = { modelManager = false },
+        confirmButton = { TextButton(onClick = { modelManager = false }) { Text("Done") } },
+        title = { Text("Downloaded models") }, text = {
+            Column(Modifier.verticalScroll(rememberScrollState())) {
+                Text("Stop listening to change model files. Removing a required model disables Listen until downloaded again.")
+                if (busy) { LinearProgressIndicator(Modifier.fillMaxWidth()); Text("Downloading / verifying / test loading…") }
+                if (download is ModelRepository.DownloadState.Running) {
+                    val d = download as ModelRepository.DownloadState.Running
+                    Text("${d.phase.name.lowercase()} · ${d.pct}% · ${d.bytes / 1_000_000}/${d.total / 1_000_000} MB")
+                }
+                if (download is ModelRepository.DownloadState.Failed) Text((download as ModelRepository.DownloadState.Failed).message)
+                error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+                managed.forEach { model ->
+                    HorizontalDivider(Modifier.padding(vertical = 8.dp))
+                    Text(model.label)
+                    Text("~${model.bytes / 1_000_000} MB download · ${if (model.installed) "Installed" else "Not installed"}", style = MaterialTheme.typography.bodySmall)
+                    Row {
+                        TextButton(onClick = { vm.downloadModel(model.id) }, enabled = stopped && !busy) { Text(if (model.installed) "Verify" else "Download") }
+                        TextButton(onClick = { vm.removeModel(model.id) }, enabled = stopped && !busy && model.installed) { Text("Remove") }
+                    }
+                }
+                Text("ML Kit language packs, when selected, are managed by Google Play services.", style = MaterialTheme.typography.bodySmall)
+            }
+        })
 }
 
 @Composable
 private fun PerformancePanel(m: Performance) {
-    val text = "ASR ${m.asrMs} ms · RTF ${"%.2f".format(m.asrRtf)}\n" +
+    val text = "${m.profile}\nASR: ${m.asr.ifBlank { "Not running" }} · ${m.backend} · chunk ${m.chunk}\n" +
+        "Translator: ${m.translator}\nASR ${m.asrMs} ms · RTF ${"%.2f".format(m.asrRtf)}\n" +
         "Translation ${m.translationMs} ms · correction ${m.correctionMs} ms / RTF ${"%.2f".format(m.correctionRtf)} · skipped ${m.skippedCorrections}\n" +
         "Endpoint → provisional ${m.provisionalLatencyMs?.let { "$it ms" } ?: "—"} · final ${m.finalLatencyMs?.let { "$it ms" } ?: "—"}\n" +
         "Audio queue ${m.audioDepth} · translation ${m.provisionalDepth}+${m.finalDepth}\n" +
-        "Caption backlog ${m.captionBacklogMs} ms · capture backlog ${m.backlogMs} ms\nDropped audio ${m.droppedAudioMs} ms · skipped translations ${m.skippedTranslations}"
-    Text(text, style = MaterialTheme.typography.bodySmall, modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp))
+        "Caption backlog ${m.captionBacklogMs} ms · capture backlog ${m.backlogMs} ms\nDropped audio ${m.droppedAudioMs} ms · skipped translations ${m.skippedTranslations}\n" +
+        "App + model RAM ≈ ${m.appPssKb / 1024} MiB PSS (includes QNN worker)\nMain-process native heap ≈ ${m.nativeHeapKb / 1024} MiB · sampled every 5 s"
+    Text(text, style = MaterialTheme.typography.bodySmall, modifier = Modifier.fillMaxWidth().heightIn(max = 220.dp).verticalScroll(rememberScrollState()).padding(bottom = 8.dp))
 }

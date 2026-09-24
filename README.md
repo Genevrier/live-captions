@@ -53,7 +53,8 @@ for **SM8750 only**, using the released 560-ms contexts and matching QAIRT 2.40 
 HTP v79 libraries. It is opt-in, visibly labeled experimental and isolated in a
 private process. Native failure or timeout falls back to the downloaded CPU model.
 Only a successfully initialized QNN session is labeled QNN; CPU fallback is
-explicit. No 320-ms option is exposed.
+explicit. No additional QNN chunk option is exposed. CPU has separately verified
+160/320/560/1120-ms model profiles; 560 ms remains the default.
 
 Hy-MT2 GPU/OpenCL offload is **not enabled**. See [accelerator investigation,
 provenance and limitations](docs/ACCELERATION.md). No thermal safeguards are
@@ -62,6 +63,18 @@ claimed; phone benchmarking is still required, especially under simultaneous ASR
 translation and correction load.
 
 ## Build and validation
+
+Optional floating captions use Android's **Display over other apps** permission;
+no Accessibility Service is used. Settings include opacity, font size, 1–4
+translation lines, source text and touch-through. Turn touch-through off to drag;
+the listening notification can show/hide the window. Position is remembered
+separately for compact and expanded screens. In-app captions require no overlay
+permission. See [overlay and chunk-profile validation](docs/OVERLAY.md).
+
+Settings → Download / remove models manages pinned model installations. New CPU
+chunk profiles require a successful on-device load/decode test before selection.
+Performance includes model/backend/chunk, latencies, RTF, bounded-queue backlog
+and approximate app-plus-model RAM (PSS, including the QNN process).
 
 CI builds a persistently signed arm64 APK and runs the unit tests, ZIP integrity,
 signature, manifest, native ABI and 16 KB alignment checks. APK and SHA-256 are
@@ -87,6 +100,6 @@ Release signing uses repository secrets `LIVE_CAPTIONS_KEYSTORE_B64`,
 key is backed up outside the repository on the operator's machine. Never commit
 the key or its passwords. Use APKs signed with this identity for subsequent updates.
 Both workflows verify the pinned public signing certificate and upload
-`LiveTranslate-MagicV5-v2.2.apk` with its `.apk.sha256` in one artifact.
+`LiveTranslate-MagicV5.apk` with its `.apk.sha256` in one artifact.
 See [persistent signing and secret setup](docs/SIGNING.md) for recovery commands
 and the version-code rule for future releases.

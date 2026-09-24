@@ -36,3 +36,22 @@ jobs:
         with:
           name: model-execution-results
           path: build/*smoke-results.txt
+  cpu-chunk-models:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install sherpa-onnx==1.13.8 pyarrow==21.0.0 soundfile==0.13.1
+      - name: Execute all verified CPU chunk profiles
+        run: |
+          mkdir -p build
+          set -o pipefail
+          python scripts/chunk_smoke.py 2>&1 | tee build/chunk-smoke-results.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: cpu-chunk-execution-results
+          path: build/chunk-smoke-results.txt

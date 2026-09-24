@@ -19,8 +19,8 @@ android {
         minSdk = 29
         targetSdk = 35
         buildConfigField("boolean", "QNN_ENABLED", qnnEnabled.toString())
-        versionCode = 5
-        versionName = "2.2"
+        versionCode = 6
+        versionName = "2.3"
 
         // Honor Magic V5 uses arm64-v8a.
         ndk { abiFilters += "arm64-v8a" }
@@ -62,6 +62,7 @@ android {
         aidl = true
         buildConfig = true
     }
+    testOptions { unitTests.isIncludeAndroidResources = true }
     externalNativeBuild { cmake { path = file("src/main/cpp/CMakeLists.txt"); version = "3.22.1" } }
     packaging {
         resources {
@@ -103,6 +104,7 @@ dependencies {
 
     debugImplementation("androidx.compose.ui:ui-tooling")
     testImplementation("junit:junit:4.13.2")
+    testImplementation("org.robolectric:robolectric:4.14.1")
 }
 
 // The sherpa-onnx runtime AAR (~56 MB) is fetched on demand instead of being committed,

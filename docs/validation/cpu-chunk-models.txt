@@ -1,0 +1,9 @@
+Verified model archive: 560 c6bf5e0df765f9d5b43bc9e0536d4b4b3e7d40bdf5ecf13e45f134c51c05ae3a
+Verified model archive: 320 5f311142337a5c161e92d49f7a3009d8607d3836f39d610bff5307c74d1d2c53
+Verified model archive: 160 a81909a1780d84cff16d73c15e13e67d9d81d8839faf14870d507d8499f7a61a
+Verified model archive: 1120 adbdd5e9fef87300c37cebfcfc4f1ebe56845c860c8a760af0a1dd65ce9beed3
+PASS CPU 160 ms: Volgens Angel tweetendzes kunnen organisaties beter presteren met een aanpak op basis van het continu model. | partials=26 seconds=3.251
+PASS CPU 320 ms: Volgens Angel tweeduizendzes kunnen organisaties beter presteren met een aanpak op basis van het continu model. | partials=16 seconds=2.037
+PASS CPU 560 ms: Volgens Angel tweeduizendzes kunnen organisaties beter presteren met een aanpak op basis van het continu model. | partials=10 seconds=1.308
+PASS CPU 1120 ms: Volgens Angel tweeduizendzes kunnen organisaties beter presteren met een aanpak op basis van het continu model. | partials=5 seconds=0.903
+PASS: all four distinct CPU chunk profiles loaded and executed. No QNN or physical-device claim.

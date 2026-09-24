@@ -19,7 +19,10 @@ The model comes from `asr-models-qnn-binary-3`:
 The verified archive contains encoder.bin (609,431,552), decoder.bin (29,978,624),
 joiner.bin (9,732,096), tokens.txt and an explicit 560-ms info.txt. CPU ONNX models
 are a separate installation and are never supplied to QNN's context loader.
-320 ms is not exposed.
+Additional QNN chunk choices are not exposed. Upstream now has separate
+160/320/1120-ms SM8750 context archives with digests, but they have not been loaded
+or executed on the target hardware here. Their existence does not validate them.
+The newly supported CPU chunk profiles never enter the QNN context loader.
 
 The QNN API gets `provider="qnn"`, `modelType="nemo_transducer"`, absolute HTP
 and System library paths, and the three comma-separated context paths. Every

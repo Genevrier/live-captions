@@ -35,6 +35,8 @@ data class ModelInfo(
     val extraFiles: List<String> = emptyList(),
     val languages: Set<String> = setOf("en"),
     val archiveBytes: Long = 0,
+    /** Fixed by the exported graphs/context, never a runtime scalar. */
+    val chunkMs: Int? = null,
 ) {
     val requiresVad get() = kind in setOf(EngineKind.QWEN3, EngineKind.WHISPER, EngineKind.OFFLINE_PARAKEET)
     fun supports(language: String) = language in languages
@@ -66,6 +68,7 @@ object ModelCatalog {
         shortName = "Nemotron 3.5",
         tagline = "Multilingual live captions · CPU, 560 ms",
         kind = EngineKind.NEMOTRON,
+        chunkMs = 560,
         languages = setOf("nl", "en", "zh"),
         archiveBytes = 475271763,
         url = REL + "sherpa-onnx-nemotron-3.5-asr-streaming-0.6b-560ms-int8-2026-06-11.tar.bz2",
@@ -76,10 +79,33 @@ object ModelCatalog {
         sha256 = "c6bf5e0df765f9d5b43bc9e0536d4b4b3e7d40bdf5ecf13e45f134c51c05ae3a",
     )
 
+    private fun nemotronChunk(ms: Int, size: Long, digest: String) = NEMOTRON.copy(
+        id = "nemotron-3.5-${ms}ms-int8", chunkMs = ms,
+        tagline = "Multilingual live captions · CPU, $ms ms",
+        url = REL + "sherpa-onnx-nemotron-3.5-asr-streaming-0.6b-${ms}ms-int8-2026-06-11.tar.bz2",
+        archiveBytes = size, sha256 = digest,
+    )
+    val NEMOTRON_PROFILES = listOf(
+        nemotronChunk(160, 475273363, "a81909a1780d84cff16d73c15e13e67d9d81d8839faf14870d507d8499f7a61a"),
+        nemotronChunk(320, 475272949, "5f311142337a5c161e92d49f7a3009d8607d3836f39d610bff5307c74d1d2c53"),
+        NEMOTRON,
+        nemotronChunk(1120, 475276334, "adbdd5e9fef87300c37cebfcfc4f1ebe56845c860c8a760af0a1dd65ce9beed3"),
+    )
+    fun chunkLabel(ms: Int?) = when (ms) {
+        160 -> "Ultra Low Latency · 160 ms"
+        320 -> "Balanced · 320 ms"
+        560 -> "Accuracy · 560 ms"
+        1120 -> "Max Context · 1120 ms"
+        else -> "VAD phrases"
+    }
+    // QNN contexts for other sizes exist upstream but have not executed on SM8750 here.
+    fun chunkProfiles(qnn: Boolean) = if (qnn) listOf(NEMOTRON) else NEMOTRON_PROFILES
+
     val NEMOTRON_QNN = ModelInfo(
         id = "nemotron-3.5-qnn-sm8750-560ms", displayName = "Nemotron 3.5 QNN SM8750",
         shortName = "Nemotron QNN", tagline = "Experimental SM8750 / HTP v79 · 560 ms",
         kind = EngineKind.NEMOTRON, languages = setOf("nl", "en", "zh"),
+        chunkMs = 560,
         url = "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models-qnn-binary-3/sherpa-onnx-qnn-SM8750-binary-nemotron-3.5-asr-streaming-0.6b-560ms.tar.bz2",
         approxMB = 443, archiveBytes = 442651414,
         sha256 = "a5af6d03ebba0425074e38d0ebd819fff88ff404fd7340433de30bb515dbbd51",
@@ -161,5 +187,5 @@ object ModelCatalog {
 
     fun defaultFor(language: String) = if (language == "zh") QWEN3 else NEMOTRON
 
-    fun byId(id: String?): ModelInfo? = (ALL + PARAKEET + NEMOTRON_QNN).firstOrNull { it.id == id }
+    fun byId(id: String?): ModelInfo? = (ALL + NEMOTRON_PROFILES + PARAKEET + NEMOTRON_QNN).firstOrNull { it.id == id }
 }

@@ -13,14 +13,61 @@ import com.asr.live.model.ModelCatalog
 import com.asr.live.pipeline.*
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicLong
+import android.provider.Settings
+import android.net.Uri
+import com.asr.live.overlay.*
+import kotlinx.coroutines.*
+import kotlinx.coroutines.flow.*
 
 class CaptionService : Service() {
     private val control = Executors.newSingleThreadExecutor()
     @Volatile private var displayedGeneration = 0L
     @Volatile private var current: CaptionSession? = null
     @Volatile private var destroyed = false
+    @Volatile private var latestStartId = 0
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+    private lateinit var overlayPrefs: OverlayPreferences
+    private lateinit var overlay: FloatingCaptions
+    private var notificationModel = "Live captions"
+    override fun onCreate() {
+        super.onCreate()
+        overlayPrefs = OverlayPreferences(this)
+        overlay = FloatingCaptions(this, overlayPrefs)
+        scope.launch {
+            combine(CaptionState.lines, CaptionState.lifecycle, overlayPrefs.state) { lines, lifecycle, options -> Triple(lines, lifecycle, options) }
+                .collect { (lines, lifecycle, _) ->
+                    overlay.render(lines, lifecycle, if (CaptionState.metrics.value.profile == Profile.ENGLISH_FRENCH.label) "French" else "English")
+                }
+        }
+        scope.launch {
+            overlayPrefs.state.collect {
+                if (CaptionState.running.value) getSystemService(NotificationManager::class.java).notify(NOTIF_ID, notification(notificationModel))
+            }
+        }
+        scope.launch {
+            while (isActive) {
+                delay(5000)
+                val generation = displayedGeneration
+                if (CaptionState.running.value) {
+                    val memory = withContext(Dispatchers.IO) { MemoryUsage.sample(this@CaptionService) }
+                    CaptionState.metrics(generation) { it.copy(appPssKb = memory.first, nativeHeapKb = memory.second) }
+                    // Recheck permission and lock-screen visibility even during a silent phrase.
+                    overlay.render(CaptionState.lines.value, CaptionState.lifecycle.value,
+                        if (CaptionState.metrics.value.profile == Profile.ENGLISH_FRENCH.label) "French" else "English")
+                    if (CaptionState.running.value) getSystemService(NotificationManager::class.java).notify(NOTIF_ID, notification(notificationModel))
+                }
+            }
+        }
+    }
     override fun onBind(intent: Intent?): IBinder? = null
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        latestStartId = startId
+        if (intent?.action == ACTION_OVERLAY) {
+            if (CaptionState.running.value && Settings.canDrawOverlays(this))
+                overlayPrefs.update(overlayPrefs.state.value.copy(enabled = !overlayPrefs.state.value.enabled))
+            else if (!CaptionState.running.value) stopSelfResult(startId)
+            return START_NOT_STICKY
+        }
         val generation = requests.incrementAndGet()
         if (intent?.action == ACTION_STOP || intent == null) {
             val stoppedGeneration = displayedGeneration
@@ -31,7 +78,7 @@ class CaptionService : Service() {
                 if (generation == requests.get()) {
                     CaptionState.stopped(stoppedGeneration)
                     stopForeground(STOP_FOREGROUND_REMOVE)
-                    stopSelfResult(startId)
+                    stopSelfResult(latestStartId)
                 }
             }
             return START_NOT_STICKY
@@ -59,7 +106,7 @@ class CaptionService : Service() {
                     if (generation == requests.get()) {
                         current?.cancel(); current?.join(); current = null
                         CaptionState.stopped(generation)
-                        stopForeground(STOP_FOREGROUND_REMOVE); stopSelfResult(startId)
+                        stopForeground(STOP_FOREGROUND_REMOVE); stopSelfResult(latestStartId)
                     }
                 } }
             }
@@ -69,6 +116,7 @@ class CaptionService : Service() {
         return START_NOT_STICKY
     }
     override fun onDestroy() {
+        scope.cancel(); overlay.close(); overlayPrefs.close()
         destroyed = true; requests.incrementAndGet()
         current?.let { CaptionState.cancel(it.generation); it.cancel() }
         control.execute { current?.let { it.join(); CaptionState.stopped(it.generation) }; current = null }
@@ -76,6 +124,7 @@ class CaptionService : Service() {
         super.onDestroy()
     }
     private fun startForegroundNotification(modelName: String) {
+        notificationModel = modelName
         val nm = getSystemService(NotificationManager::class.java)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             nm.createNotificationChannel(
@@ -83,6 +132,9 @@ class CaptionService : Service() {
             )
         }
 
+        ServiceCompat.startForeground(this, NOTIF_ID, notification(modelName), ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE)
+    }
+    private fun notification(modelName: String): Notification {
         val open = PendingIntent.getActivity(
             this, 0, Intent(this, MainActivity::class.java),
             PendingIntent.FLAG_IMMUTABLE,
@@ -92,6 +144,11 @@ class CaptionService : Service() {
             PendingIntent.FLAG_IMMUTABLE,
         )
 
+        val allowed = Settings.canDrawOverlays(this)
+        val toggle = if (allowed) PendingIntent.getService(this, 2,
+            Intent(this, CaptionService::class.java).setAction(ACTION_OVERLAY), PendingIntent.FLAG_IMMUTABLE)
+        else PendingIntent.getActivity(this, 3,
+            Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName")), PendingIntent.FLAG_IMMUTABLE)
         @Suppress("DEPRECATION") // int-icon Action.Builder keeps us off the icons dependency
         val notification: Notification = Notification.Builder(this, CHANNEL_ID)
             .setContentTitle("Listening")
@@ -99,17 +156,19 @@ class CaptionService : Service() {
             .setSmallIcon(android.R.drawable.ic_btn_speak_now)
             .setContentIntent(open)
             .setOngoing(true)
+            .setOnlyAlertOnce(true)
+            .addAction(Notification.Action.Builder(android.R.drawable.ic_menu_view,
+                if (!allowed) "Overlay permission" else if (overlayPrefs.state.value.enabled) "Hide captions" else "Show captions", toggle).build())
             .addAction(Notification.Action.Builder(android.R.drawable.ic_delete, "Stop", stop).build())
             .build()
 
-        ServiceCompat.startForeground(
-            this, NOTIF_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE,
-        )
+        return notification
     }
 
     companion object {
         private val requests = AtomicLong()
         private const val ACTION_STOP = "com.asr.live.action.STOP"
+        private const val ACTION_OVERLAY = "com.asr.live.action.OVERLAY"
         private const val CHANNEL_ID = "captions"
         private const val NOTIF_ID = 1
         fun start(ctx: Context, config: SessionConfig) {

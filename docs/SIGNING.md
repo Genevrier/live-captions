@@ -55,19 +55,18 @@ release with this workflow.
 ## Update compatibility and artifact names
 
 Keep `applicationId = "com.asr.live"` and this signing key. Increase `versionCode`
-in `app/build.gradle.kts` for each new app release; this delivery uses **5**, above
-the previous delivery's **4**. Keep increasing it even if changing `versionName`.
+in `app/build.gradle.kts` for each new app release; this delivery uses **6**, above
+the previous delivery's **5**. Keep increasing it even if changing `versionName`.
 Rebuilding the same release retains its version code. APKs previously signed
 with an unrelated debug key cannot be updated using this identity.
 
-The verified APK manifest supplies the filename, currently
-`LiveTranslate-MagicV5-v2.2.apk`. The existing app version is 2.2, so the filename
-does not reset it to 0.1. Both workflows upload the APK and its SHA-256 together;
+The final filename is `LiveTranslate-MagicV5.apk`; the signed manifest contains
+versionName 2.3 and versionCode 6. Both workflows upload the APK and its SHA-256 together;
 the tag workflow also attaches them to the GitHub Release. The checksum uses a
 relative filename so, after extraction, verification is simply:
 
 ```bash
-sha256sum -c LiveTranslate-MagicV5-v2.2.apk.sha256
+sha256sum -c LiveTranslate-MagicV5.apk.sha256
 ```
 
 See [Android signing](https://developer.android.com/studio/publish/app-signing),

@@ -89,8 +89,8 @@ jobs:
         with:
           name: ${{ steps.delivery.outputs.artifact_name }}
           path: |
-            out/LiveTranslate-MagicV5-*.apk
-            out/LiveTranslate-MagicV5-*.apk.sha256
+            out/LiveTranslate-MagicV5.apk
+            out/LiveTranslate-MagicV5.apk.sha256
           if-no-files-found: error
 
       - name: Publish GitHub Release

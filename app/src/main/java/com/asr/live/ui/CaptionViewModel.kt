@@ -10,9 +10,19 @@ import com.asr.live.service.*
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import com.asr.live.overlay.OverlayPreferences
+import com.asr.live.overlay.OverlayOptions
+
+data class ManagedModel(val id: String, val label: String, val bytes: Long, val installed: Boolean, val selectable: Boolean = false)
 
 class CaptionViewModel(app: Application) : AndroidViewModel(app) {
     private val prefs = app.getSharedPreferences("profiles_v2", Context.MODE_PRIVATE)
+    private val overlayPrefs = OverlayPreferences(app)
+    val overlay = overlayPrefs.state
+    fun updateOverlay(options: OverlayOptions) = overlayPrefs.update(options)
+    override fun onCleared() { overlayPrefs.close(); super.onCleared() }
+    private val _managed = MutableStateFlow<List<ManagedModel>>(emptyList())
+    val managed = _managed.asStateFlow()
     private val _config = MutableStateFlow(SessionConfig(
         profile = Profile.fromId(prefs.getString("profile", null)),
         modelId = prefs.getString("model", ModelCatalog.DEFAULT.id) ?: ModelCatalog.DEFAULT.id,
@@ -38,8 +48,13 @@ class CaptionViewModel(app: Application) : AndroidViewModel(app) {
     fun update(config: SessionConfig) {
         if (_busy.value || CaptionState.running.value) return
         val info = ModelCatalog.byId(config.modelId)
-        val adjusted = if (config.profile != _config.value.profile) config.copy(modelId = ModelCatalog.defaultFor(config.profile.source).id, correction = config.correction && config.profile.correctionSupported)
+        var adjusted = if (config.profile != _config.value.profile) config.copy(modelId = ModelCatalog.defaultFor(config.profile.source).id, correction = config.correction && config.profile.correctionSupported)
             else if (info?.supports(config.profile.source) == true) config else config.copy(modelId = ModelCatalog.defaultFor(config.profile.source).id)
+        if (adjusted.qnn && ModelCatalog.byId(adjusted.modelId)?.kind == EngineKind.NEMOTRON)
+            adjusted = adjusted.copy(modelId = ModelCatalog.NEMOTRON.id)
+        if (adjusted.modelId != _config.value.modelId && adjusted.modelId != ModelCatalog.NEMOTRON.id &&
+            ModelCatalog.byId(adjusted.modelId)?.kind == EngineKind.NEMOTRON &&
+            _managed.value.none { it.id == adjusted.modelId && it.selectable }) return
         val previous = _config.value
         _config.value = adjusted
         prefs.edit().putString("profile", adjusted.profile.name).putString("model", adjusted.modelId)
@@ -51,9 +66,10 @@ class CaptionViewModel(app: Application) : AndroidViewModel(app) {
         val cfg = _config.value
         _ready.value = false
         viewModelScope.launch {
+            refreshManaged()
             val ready = withContext(Dispatchers.IO) {
                 val info = ModelCatalog.byId(cfg.modelId) ?: ModelCatalog.DEFAULT
-                ModelStore.isPresent(getApplication(), info) && (!info.requiresVad || TranslationModels.present(getApplication(), "silero-vad")) && (!cfg.qnn || info.kind != EngineKind.NEMOTRON || ModelStore.isPresent(getApplication(), ModelCatalog.NEMOTRON_QNN)) && (!cfg.correction || !cfg.profile.correctionSupported || ModelStore.isPresent(getApplication(), ModelCatalog.PARAKEET)) && if (cfg.quality == TranslationQuality.ML_KIT) {
+                ModelStore.isPresent(getApplication(), info) && (info.kind != EngineKind.NEMOTRON || info == ModelCatalog.NEMOTRON || loaded(info)) && (!info.requiresVad || TranslationModels.present(getApplication(), "silero-vad")) && (!cfg.qnn || info.kind != EngineKind.NEMOTRON || ModelStore.isPresent(getApplication(), ModelCatalog.NEMOTRON_QNN)) && (!cfg.correction || !cfg.profile.correctionSupported || ModelStore.isPresent(getApplication(), ModelCatalog.PARAKEET)) && if (cfg.quality == TranslationQuality.ML_KIT) {
                     runCatching { ModelRepository.translationPresent(cfg.profile.source, cfg.profile.target) }.getOrDefault(false)
                 } else {
                     TranslationModels.present(getApplication(), cfg.quality.bundleId!!) &&
@@ -64,7 +80,7 @@ class CaptionViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
     fun downloadRequired() {
-        if (_busy.value) return
+        if (_busy.value || CaptionState.running.value) return
         val cfg = _config.value
         _busy.value = true
         viewModelScope.launch {
@@ -72,6 +88,7 @@ class CaptionViewModel(app: Application) : AndroidViewModel(app) {
                 val info = ModelCatalog.byId(cfg.modelId) ?: ModelCatalog.DEFAULT
                 if (info.requiresVad && !ModelRepository.downloadBundle(getApplication(), "silero-vad")) return@launch
                 if (!ModelRepository.download(getApplication(), info)) return@launch
+                if (info.kind == EngineKind.NEMOTRON) validateChunk(info)
                 if (cfg.qnn && info.kind == EngineKind.NEMOTRON && !ModelRepository.download(getApplication(), ModelCatalog.NEMOTRON_QNN)) return@launch
                 if (cfg.correction && cfg.profile.correctionSupported && !ModelRepository.download(getApplication(), ModelCatalog.PARAKEET)) return@launch
                 if (cfg.quality == TranslationQuality.ML_KIT) {
@@ -81,6 +98,62 @@ class CaptionViewModel(app: Application) : AndroidViewModel(app) {
                     if (!ModelRepository.downloadBundle(getApplication(), cfg.quality.bundleId!!)) return@launch
                     cfg.profile.fastBundle?.let { ModelRepository.downloadBundle(getApplication(), it) }
                 }
+            } catch (e: Exception) {
+                if (e is CancellationException) throw e
+                CaptionState.setError("Model preparation failed: ${e.message}")
+            } finally { _busy.value = false; refreshPresence() }
+        }
+    }
+    private fun stamp(info: ModelInfo) = "${com.asr.live.BuildConfig.VERSION_CODE}:${info.sha256}"
+    private fun loaded(info: ModelInfo) = prefs.getString("loaded.${info.id}", null) == stamp(info)
+    private val asrAssets get() = (ModelCatalog.ALL + ModelCatalog.NEMOTRON_PROFILES + ModelCatalog.PARAKEET + ModelCatalog.NEMOTRON_QNN).distinctBy { it.id }
+    private val bundleIds get() = (TranslationQuality.entries.mapNotNull { it.bundleId } + Profile.entries.mapNotNull { it.fastBundle } + "silero-vad").distinct()
+    private suspend fun refreshManaged() {
+        _managed.value = withContext(Dispatchers.IO) {
+            asrAssets.map { info ->
+                val installed = ModelStore.isPresent(getApplication(), info)
+                ManagedModel(info.id, if (info in ModelCatalog.NEMOTRON_PROFILES) "Nemotron CPU · ${ModelCatalog.chunkLabel(info.chunkMs)}" else info.displayName,
+                    info.archiveBytes, installed, installed && loaded(info))
+            } + bundleIds.map { id -> val b = TranslationModels.bundle(getApplication(), id)
+                ManagedModel(id, b.label, b.size, TranslationModels.present(getApplication(), id)) }
+        }
+    }
+    private suspend fun validateChunk(info: ModelInfo) = withContext(Dispatchers.IO) {
+        ModelStore.verify(getApplication(), info)
+        val engine = com.asr.live.asr.EngineFactory.create(getApplication(), info, _config.value.profile.source,
+            "transcribe", {}, {}, _config.value.threads)
+        try {
+            // Exercise at least one complete encoder chunk; no microphone or persisted audio.
+            repeat(20) { engine.accept(FloatArray(1600)) }
+            engine.finish()
+            prefs.edit().putString("loaded.${info.id}", stamp(info)).apply()
+        } finally { engine.release() }
+    }
+    fun downloadModel(id: String) {
+        if (_busy.value || CaptionState.running.value || _managed.value.none { it.id == id }) return
+        _busy.value = true
+        viewModelScope.launch {
+            try {
+                val info = asrAssets.firstOrNull { it.id == id }
+                if (info != null) {
+                    if (ModelRepository.download(getApplication(), info) && info in ModelCatalog.NEMOTRON_PROFILES) validateChunk(info)
+                } else ModelRepository.downloadBundle(getApplication(), id)
+            } catch (e: Exception) {
+                if (e is CancellationException) throw e
+                CaptionState.setError("Model load test failed: ${e.message}")
+            } finally { _busy.value = false; refreshPresence() }
+        }
+    }
+    fun removeModel(id: String) {
+        if (_busy.value || CaptionState.running.value || _managed.value.none { it.id == id }) return
+        _busy.value = true
+        viewModelScope.launch {
+            try {
+                ModelRepository.remove(getApplication(), id)
+                prefs.edit().remove("loaded.$id").apply()
+            } catch (e: Exception) {
+                if (e is CancellationException) throw e
+                CaptionState.setError("Could not remove model: ${e.message}")
             } finally { _busy.value = false; refreshPresence() }
         }
     }

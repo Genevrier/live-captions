@@ -31,7 +31,7 @@ class CaptionSession(
     private val correctionBusy = AtomicBoolean(false)
     @Volatile private var correctionReady = false
     @Volatile private var correctionRtf = 0.0
-    private val correctionEnabled = config.correction && config.profile.correctionSupported && config.modelId == ModelCatalog.NEMOTRON.id
+    private val correctionEnabled = config.correction && config.profile.correctionSupported && ModelCatalog.byId(config.modelId)?.kind == EngineKind.NEMOTRON
     private val corrector = Thread(::correctLoop, "endpoint-correction")
     private val sequence = AtomicLong()
     @Volatile private var activeFinalEndpoint: Long? = null
@@ -74,6 +74,7 @@ class CaptionSession(
         var computeMs = 0L
         try {
             require(info.supports(config.profile.source)) { "${info.shortName} does not support ${config.profile.source}" }
+            require(!config.qnn || info.kind != EngineKind.NEMOTRON || info.id == ModelCatalog.NEMOTRON.id) { "QNN currently supports only the separate 560 ms context" }
             ModelStore.verify(ctx, info)
             if (!active.get()) return
             fun create(): com.asr.live.asr.AsrEngine = if (config.qnn && !qnnFailed && info.kind == EngineKind.NEMOTRON)

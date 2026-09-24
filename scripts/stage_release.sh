@@ -20,9 +20,9 @@ version=$(printf '%s\n' "$badging" | sed -n "s/^package:.* versionName='\([^']*\
 test "$package" = com.asr.live
 [[ "$version" =~ ^[0-9]+(\.[0-9]+)*$ ]]
 mkdir -p out
-name="LiveTranslate-MagicV5-v${version}.apk"
+name="LiveTranslate-MagicV5.apk"
 cp "$apk" "out/$name"
 (cd out && sha256sum "$name" > "$name.sha256")
 if [[ -n "${GITHUB_OUTPUT:-}" ]]; then
-  echo "artifact_name=LiveTranslate-MagicV5-v${version}" >> "$GITHUB_OUTPUT"
+  echo "artifact_name=LiveTranslate-MagicV5" >> "$GITHUB_OUTPUT"
 fi

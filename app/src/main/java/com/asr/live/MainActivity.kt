@@ -4,6 +4,9 @@ import android.Manifest
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
+import android.content.Intent
+import android.net.Uri
+import android.provider.Settings
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -21,6 +24,7 @@ class MainActivity : ComponentActivity() {
 
     private val vm: CaptionViewModel by viewModels()
     private var hasAudio by mutableStateOf(false)
+    private var hasOverlay by mutableStateOf(false)
 
     private val permissions =
         registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
@@ -31,6 +35,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         hasAudio = isAudioGranted()
+        hasOverlay = Settings.canDrawOverlays(this)
 
         setContent {
             AsrTheme {
@@ -38,6 +43,11 @@ class MainActivity : ComponentActivity() {
                     vm = vm,
                     hasAudioPermission = hasAudio,
                     onRequestPermission = ::requestPermissions,
+                    hasOverlayPermission = hasOverlay,
+                    onRequestOverlayPermission = {
+                        runCatching { startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName"))) }
+                            .onFailure { com.asr.live.service.CaptionState.setError("Open Android Settings → Special app access → Display over other apps → Live Captions.") }
+                    },
                 )
             }
         }
@@ -46,6 +56,7 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         hasAudio = isAudioGranted()
+        hasOverlay = Settings.canDrawOverlays(this)
         vm.refreshPresence()
     }
 

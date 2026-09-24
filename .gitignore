@@ -16,3 +16,4 @@ app/libs/*.aar
 *.pfx
 keystore.properties
 signing.properties
+__pycache__/
