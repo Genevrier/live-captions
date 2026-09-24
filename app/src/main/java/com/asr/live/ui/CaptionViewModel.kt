@@ -28,11 +28,11 @@ class CaptionViewModel(app: Application) : AndroidViewModel(app) {
     val selected: StateFlow<String> = _selected.asStateFlow()
 
     /** Whisper source-language hint. */
-    private val _spoken = MutableStateFlow(prefs.getString(KEY_SPOKEN, "tr") ?: "tr")
+    private val _spoken = MutableStateFlow(prefs.getString(KEY_SPOKEN, "nl") ?: "nl")
     val spoken: StateFlow<String> = _spoken.asStateFlow()
 
     /** Translation target, or [Languages.OFF]. */
-    private val _target = MutableStateFlow(prefs.getString(KEY_TARGET, Languages.OFF) ?: Languages.OFF)
+    private val _target = MutableStateFlow(prefs.getString(KEY_TARGET, "en") ?: "en")
     val target: StateFlow<String> = _target.asStateFlow()
 
     private val _present = MutableStateFlow(presentIds())
@@ -58,6 +58,9 @@ class CaptionViewModel(app: Application) : AndroidViewModel(app) {
 
     fun setSpoken(code: String) {
         if (running.value) return
+        if (code == "zh" && selectedInfo().kind == com.asr.live.model.EngineKind.OFFLINE_PARAKEET) {
+            select(ModelCatalog.WHISPER_SMALL.id)
+        }
         _spoken.value = code
         prefs.edit().putString(KEY_SPOKEN, code).apply()
     }

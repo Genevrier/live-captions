@@ -215,7 +215,7 @@ private fun ConfigBar(info: ModelInfo, spoken: String, target: String, status: S
 
     val sourceLabel = if (info.isMultilingual) Languages.name(spoken) else "English"
     val summary = when {
-        target != Languages.OFF -> "$sourceLabel  →  ${Languages.name(target)}"
+        target != Languages.OFF -> "$sourceLabel  →  ${Languages.name(target)} · ${info.shortName} / CPU · ${if (info.kind == com.asr.live.model.EngineKind.WHISPER && target == "en") "Whisper" else "ML Kit on-device"}"
         info.isMultilingual -> sourceLabel
         else -> null
     }
@@ -409,7 +409,7 @@ private fun ModelGate(
                 } else {
                     Button(onClick = onDownload) {
                         Icon(Icons.Filled.Download, contentDescription = null)
-                        Text("  Download")
+                        Text("  Download required model")
                     }
                     if (failed != null) {
                         Spacer(Modifier.height(12.dp))

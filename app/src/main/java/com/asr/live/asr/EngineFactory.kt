@@ -22,6 +22,8 @@ object EngineFactory {
         return when (info.kind) {
             EngineKind.STREAMING_ZIPFORMER ->
                 StreamingEngine(dir, info, onPartial, onFinal)
+            EngineKind.NEMOTRON ->
+                StreamingEngine(dir, info, onPartial, onFinal, language)
             EngineKind.OFFLINE_PARAKEET ->
                 OfflineVadEngine(dir, ModelStore.vadPath(ctx), info, onPartial, onFinal)
             EngineKind.WHISPER ->

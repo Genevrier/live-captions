@@ -18,6 +18,7 @@ class StreamingEngine(
     info: ModelInfo,
     private val onPartial: (String) -> Unit,
     private val onFinal: (String) -> Unit,
+    language: String = "en",
 ) : AsrEngine {
 
     private val recognizer = OnlineRecognizer(
@@ -30,9 +31,9 @@ class StreamingEngine(
                     joiner = File(modelDir, info.joiner).absolutePath,
                 ),
                 tokens = File(modelDir, "tokens.txt").absolutePath,
-                numThreads = 4,
+                numThreads = 6,
                 provider = "cpu",
-                modelType = "zipformer2",
+                modelType = if (info.kind == com.asr.live.model.EngineKind.NEMOTRON) "" else "zipformer2",
             ),
             endpointConfig = EndpointConfig(),
             enableEndpoint = true,
@@ -40,7 +41,9 @@ class StreamingEngine(
         )
     )
 
-    private val stream = recognizer.createStream()
+    private val stream = recognizer.createStream().also {
+        if (info.kind == com.asr.live.model.EngineKind.NEMOTRON) it.setOption("language", language)
+    }
     private var lastPartial = ""
 
     override fun accept(samples: FloatArray) {

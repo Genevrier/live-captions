@@ -45,21 +45,35 @@ jobs:
           yes | "$SDKMANAGER" --licenses >/dev/null || true
           "$SDKMANAGER" "platforms;android-35" "build-tools;35.0.0"
 
-      - name: Fetch sherpa-onnx AAR
+      - name: Prepare persistent signing key
+        env:
+          KEYSTORE_B64: ${{ secrets.LIVE_CAPTIONS_KEYSTORE_B64 }}
         run: |
-          mkdir -p app/libs
-          curl -L --fail \
-            -o app/libs/sherpa-onnx-1.13.2.aar \
-            https://github.com/k2-fsa/sherpa-onnx/releases/download/v1.13.2/sherpa-onnx-1.13.2.aar
+          test -n "$KEYSTORE_B64"
+          printf '%s' "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/live-captions.jks"
+          echo "LIVE_CAPTIONS_KEYSTORE=$RUNNER_TEMP/live-captions.jks" >> "$GITHUB_ENV"
 
-      - name: Build debug APK
+      - name: Build signed release APK and test
+        env:
+          LIVE_CAPTIONS_STORE_PASSWORD: ${{ secrets.LIVE_CAPTIONS_STORE_PASSWORD }}
+          LIVE_CAPTIONS_KEY_PASSWORD: ${{ secrets.LIVE_CAPTIONS_KEY_PASSWORD }}
         run: |
           chmod +x gradlew
-          ./gradlew :app:assembleDebug --no-daemon --stacktrace
+          ./gradlew :app:testDebugUnitTest :app:assembleRelease --no-daemon --stacktrace
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: live-captions-debug
-          path: app/build/outputs/apk/debug/app-debug.apk
+          name: live-captions-arm64-release
+          path: app/build/outputs/apk/release/app-release.apk
+          if-no-files-found: error
+
+      - name: Write APK SHA-256
+        run: sha256sum app/build/outputs/apk/release/app-release.apk > app-release.apk.sha256
+
+      - name: Upload checksum
+        uses: actions/upload-artifact@v4
+        with:
+          name: live-captions-arm64-sha256
+          path: app-release.apk.sha256
           if-no-files-found: error

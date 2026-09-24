@@ -34,14 +34,10 @@ class MlKitTranslator(sourceCode: String, targetCode: String) {
         client?.let { Tasks.await(it.downloadModelIfNeeded()) }
     }
 
-    /** Returns the translation, or the original text if translation fails. */
+    /** Fails visibly when the on-device translator cannot produce a result. */
     fun translate(text: String): String {
-        val c = client ?: return text
-        return try {
-            Tasks.await(c.translate(text))
-        } catch (_: Throwable) {
-            text
-        }
+        val c = client ?: error("Unsupported translation direction")
+        return Tasks.await(c.translate(text))
     }
 
     fun close() {

@@ -20,7 +20,9 @@ import com.asr.live.i18n.MlKitTranslator
 import com.asr.live.model.EngineKind
 import com.asr.live.model.ModelCatalog
 import com.asr.live.model.ModelInfo
-import java.util.concurrent.LinkedBlockingQueue
+import java.util.concurrent.ArrayBlockingQueue
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicLong
 
 /**
  * Foreground (type=microphone) service that owns the mic + recognizer (+ optional translator).
@@ -29,11 +31,14 @@ import java.util.concurrent.LinkedBlockingQueue
  */
 class CaptionService : Service() {
 
-    private val queue = LinkedBlockingQueue<FloatArray>()
+    private val queue = ArrayBlockingQueue<FloatArray>(64)
+    private val translationQueue = ArrayBlockingQueue<Pair<Long, String>>(16)
     private val poison = FloatArray(0)
 
     private var audio: com.asr.live.audio.AudioCapture? = null
     private var worker: Thread? = null
+    private var translationWorker: Thread? = null
+    private val droppedAudio = AtomicLong()
 
     @Volatile private var engine: AsrEngine? = null
     @Volatile private var translator: MlKitTranslator? = null
@@ -48,8 +53,8 @@ class CaptionService : Service() {
         }
 
         val info = ModelCatalog.byId(intent?.getStringExtra(EXTRA_MODEL_ID)) ?: ModelCatalog.DEFAULT
-        val spoken = intent?.getStringExtra(EXTRA_SPOKEN) ?: "en"
-        val target = intent?.getStringExtra(EXTRA_TARGET) ?: Languages.OFF
+        val spoken = intent?.getStringExtra(EXTRA_SPOKEN) ?: "nl"
+        val target = intent?.getStringExtra(EXTRA_TARGET) ?: "en"
 
         startForegroundNotification(info.displayName)
         startEngine(info, spoken, target)
@@ -57,18 +62,22 @@ class CaptionService : Service() {
     }
 
     private fun startEngine(info: ModelInfo, spoken: String, target: String) {
-        if (engine != null) return
+        if (worker != null) return
         CaptionState.setError(null)
 
         // Whisper can translate straight to English itself; for any other target we transcribe
         // in the source language and translate the text with ML Kit.
         val whisperDirectEnglish = info.kind == EngineKind.WHISPER && target == "en"
         val whisperTask = if (whisperDirectEnglish) "translate" else "transcribe"
-        val sourceForMlKit = if (info.kind == EngineKind.WHISPER) spoken else "en"
+        val sourceForMlKit = if (info.isMultilingual) spoken else "en"
         val needMlKit = target != Languages.OFF && !whisperDirectEnglish && target != sourceForMlKit
 
-        translator = if (needMlKit) {
-            MlKitTranslator(sourceForMlKit, target).takeIf { it.supported }
+        translator = if (needMlKit) MlKitTranslator(sourceForMlKit, target).also {
+            if (!it.supported) {
+                CaptionState.setError("Unsupported translation: $sourceForMlKit → $target")
+                stopSelf()
+                return
+            }
         } else null
 
         engine = try {
@@ -84,9 +93,17 @@ class CaptionService : Service() {
         }
 
         CaptionState.setRunning(true)
+        if (translator != null) translationWorker = Thread(::translationLoop, "translation").also { it.start() }
         worker = Thread(::decodeLoop, "asr-decode").also { it.start() }
 
-        audio = com.asr.live.audio.AudioCapture { chunk -> queue.offer(chunk) }
+        audio = com.asr.live.audio.AudioCapture { chunk ->
+            if (!queue.offer(chunk)) {
+                queue.poll()
+                queue.offer(chunk)
+                droppedAudio.incrementAndGet()
+                CaptionState.setStatus("Audio backlog: ${queue.size} chunks · dropped: ${droppedAudio.get()}")
+            }
+        }
         try {
             audio?.start()
         } catch (t: Throwable) {
@@ -96,30 +113,38 @@ class CaptionService : Service() {
         }
     }
 
-    /** Translate (if enabled) then publish the line. Runs on the decode thread. */
+    /** Recognition never waits for translation. */
     private fun handleFinal(text: String) {
-        val tr = translator
-        if (tr != null) {
-            CaptionState.appendFinal(tr.translate(text), original = text)
+        if (translator != null) {
+            val id = CaptionState.appendSource(text)
+            if (!translationQueue.offer(id to text)) {
+                translationQueue.poll()
+                if (!translationQueue.offer(id to text)) CaptionState.setError("Translation backlog full")
+            }
         } else {
             CaptionState.appendFinal(text)
         }
     }
 
+    private fun translationLoop() {
+        val tr = translator ?: return
+        try {
+            CaptionState.setStatus("Preparing on-device ML Kit translator…")
+            tr.prepare()
+            CaptionState.setStatus(null)
+            while (!Thread.currentThread().isInterrupted) {
+                val (id, text) = translationQueue.poll(500, TimeUnit.MILLISECONDS) ?: continue
+                try { CaptionState.applyTranslation(id, 1, tr.translate(text)) }
+                catch (t: Throwable) { CaptionState.setError("Translation failed: ${t.message}") }
+            }
+        } catch (_: InterruptedException) {
+        } catch (t: Throwable) {
+            CaptionState.setError("Translation model unavailable: ${t.message}")
+        }
+    }
+
     private fun decodeLoop() {
         val e = engine ?: return
-        // Make sure the translation model is on-device before we start emitting lines.
-        translator?.let {
-            CaptionState.setStatus("Downloading translation model…")
-            try {
-                it.prepare()
-            } catch (t: Throwable) {
-                CaptionState.setError("Translation unavailable (needs internet once): ${t.message}")
-                translator = null
-            } finally {
-                CaptionState.setStatus(null)
-            }
-        }
         try {
             while (true) {
                 val chunk = queue.take()
@@ -140,9 +165,14 @@ class CaptionService : Service() {
         queue.clear()
         queue.offer(poison)
         worker?.join(3000)
+        if (worker?.isAlive == true) worker?.interrupt()
         worker = null
         engine?.release()
         engine = null
+        translationWorker?.interrupt()
+        translationWorker?.join(3000)
+        translationWorker = null
+        translationQueue.clear()
         translator?.close()
         translator = null
         CaptionState.setRunning(false)

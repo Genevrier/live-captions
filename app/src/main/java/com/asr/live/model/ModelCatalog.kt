@@ -2,6 +2,7 @@ package com.asr.live.model
 
 /** The recognizer architecture a model uses; drives how the engine is built. */
 enum class EngineKind {
+    NEMOTRON,
     /** Streaming Zipformer transducer (true low-latency, English). */
     STREAMING_ZIPFORMER,
     /** Offline transducer (Parakeet TDT), VAD-segmented, English. */
@@ -29,8 +30,10 @@ data class ModelInfo(
     /** Sanity floors for extracted files; guard against truncated downloads. */
     val encoderMinBytes: Long = 0,
     val decoderMinBytes: Long = 0,
+    val sha256: String = "",
+    val extraFiles: List<String> = emptyList(),
 ) {
-    val isMultilingual: Boolean get() = kind == EngineKind.WHISPER
+    val isMultilingual: Boolean get() = kind == EngineKind.WHISPER || kind == EngineKind.NEMOTRON
 
     /** Files that must exist on disk for the model to be considered installed. */
     val requiredFiles: List<String>
@@ -39,6 +42,7 @@ data class ModelInfo(
             add(decoder)
             if (joiner.isNotEmpty()) add(joiner)
             add(tokens)
+            addAll(extraFiles)
         }
 }
 
@@ -50,6 +54,20 @@ data class ModelInfo(
  */
 object ModelCatalog {
     private const val REL = "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/"
+
+    val NEMOTRON = ModelInfo(
+        id = "nemotron-3.5-560ms-int8",
+        displayName = "Nemotron 3.5 Streaming 0.6B",
+        shortName = "Nemotron",
+        tagline = "Multilingual live captions · CPU, 560 ms",
+        kind = EngineKind.NEMOTRON,
+        url = REL + "sherpa-onnx-nemotron-3.5-asr-streaming-0.6b-560ms-int8-2026-06-11.tar.bz2",
+        approxMB = 475,
+        encoder = "encoder.int8.onnx",
+        decoder = "decoder.int8.onnx",
+        joiner = "joiner.int8.onnx",
+        sha256 = "c6bf5e0df765f9d5b43bc9e0536d4b4b3e7d40bdf5ecf13e45f134c51c05ae3a",
+    )
 
     val STREAMING = ModelInfo(
         id = "streaming-zipformer-en",
@@ -110,8 +128,8 @@ object ModelCatalog {
     )
 
     // Order = recommended first within each tier; small (better) listed before base.
-    val ALL = listOf(STREAMING, PARAKEET, WHISPER_SMALL, WHISPER_BASE)
-    val DEFAULT = STREAMING
+    val ALL = listOf(NEMOTRON, WHISPER_SMALL, WHISPER_BASE, STREAMING, PARAKEET)
+    val DEFAULT = NEMOTRON
 
     fun byId(id: String?): ModelInfo? = ALL.firstOrNull { it.id == id }
 }

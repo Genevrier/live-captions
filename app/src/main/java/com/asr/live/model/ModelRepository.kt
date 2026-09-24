@@ -12,6 +12,7 @@ import java.io.BufferedInputStream
 import java.io.File
 import java.net.HttpURLConnection
 import java.net.URL
+import java.security.MessageDigest
 
 /**
  * Downloads a model archive on first use and extracts just the files we need.
@@ -43,10 +44,16 @@ object ModelRepository {
             downloadTo(info.url, tmp) { pct ->
                 _state.value = DownloadState.Running(info.id, Phase.DOWNLOAD, pct)
             }
+            if (info.sha256.isNotEmpty() && sha256(tmp) != info.sha256) error("model archive checksum mismatch")
 
             _state.value = DownloadState.Running(info.id, Phase.EXTRACT, 100)
-            dir.mkdirs()
-            extract(tmp, dir, info.requiredFiles.toSet())
+            val staging = File(ctx.cacheDir, "${info.id}.extract")
+            staging.deleteRecursively()
+            staging.mkdirs()
+            extract(tmp, staging, info.requiredFiles.toSet())
+            if (!info.requiredFiles.all { File(staging, it).length() > 0 }) error("model archive incomplete")
+            dir.deleteRecursively()
+            if (!staging.renameTo(dir)) error("could not install model")
 
             if (!ModelStore.isPresent(ctx, info)) error("archive did not contain the expected model files")
             _state.value = DownloadState.Idle
@@ -59,6 +66,19 @@ object ModelRepository {
             tmp.delete()
             inFlight = false
         }
+    }
+
+    private fun sha256(file: File): String {
+        val digest = MessageDigest.getInstance("SHA-256")
+        file.inputStream().use { input ->
+            val buffer = ByteArray(1 shl 16)
+            while (true) {
+                val n = input.read(buffer)
+                if (n < 0) break
+                digest.update(buffer, 0, n)
+            }
+        }
+        return digest.digest().joinToString("") { "%02x".format(it) }
     }
 
     private inline fun downloadTo(urlStr: String, dest: File, onProgress: (Int) -> Unit) {
@@ -85,6 +105,7 @@ object ModelRepository {
                     }
                 }
             }
+            if (total > 0 && read != total) error("incomplete download: $read of $total bytes")
         } finally {
             conn.disconnect()
         }

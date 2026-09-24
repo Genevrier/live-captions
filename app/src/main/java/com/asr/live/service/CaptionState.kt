@@ -11,7 +11,7 @@ import kotlinx.coroutines.flow.asStateFlow
 object CaptionState {
 
     /** A finalized caption. [original] holds the pre-translation text when translating. */
-    data class Line(val id: Long, val text: String, val original: String? = null)
+    data class Line(val id: Long, val text: String, val original: String? = null, val revision: Int = 0, val state: String = "final")
 
     private val _lines = MutableStateFlow<List<Line>>(emptyList())
     val lines: StateFlow<List<Line>> = _lines.asStateFlow()
@@ -38,6 +38,24 @@ object CaptionState {
         _lines.value = (_lines.value + Line(counter++, t, original?.trim()?.ifEmpty { null }))
             .takeLast(MAX_LINES)
         _partial.value = ""
+    }
+
+    @Synchronized
+    fun appendSource(text: String): Long {
+        val id = counter++
+        _lines.value = (_lines.value + Line(id, "Translating…", text.trim(), state = "provisional"))
+            .takeLast(MAX_LINES)
+        _partial.value = ""
+        return id
+    }
+
+    @Synchronized
+    fun applyTranslation(id: Long, revision: Int, translated: String) {
+        _lines.value = _lines.value.map { line ->
+            if (line.id == id && revision >= line.revision) line.copy(
+                text = translated.trim(), revision = revision, state = "final"
+            ) else line
+        }
     }
 
     fun setPartial(text: String) { _partial.value = text.trim() }
