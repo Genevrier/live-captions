@@ -46,3 +46,10 @@ PAD/decoder-start 59,513 and EOS 0. The decoder has six layers, eight heads, 512
 hidden dimensions. The same merged-decoder KV cache implementation passed two
 consecutive English→French requests. Provisional decoding is greedy; Hy-MT2
 supplies the separately generated final output.
+
+The recorded Dutch smoke test uses Google FLEURS (CC-BY-4.0), `nl_nl` test row 0,
+converted dataset revision `168de341b3db6859a9bac1c50a2ef5e3b47647e0`. The corpus
+and extracted audio hashes are pinned in `scripts/asr_smoke.py`. Nemotron produced
+multiple real partial transcripts and a Dutch final with `language=nl`.
+This single-sample loading/streaming test is not an accuracy benchmark. Sample
+weights/audio remain outside Git and the APK.

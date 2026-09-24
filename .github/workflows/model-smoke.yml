@@ -28,7 +28,7 @@ jobs:
           python scripts/native_smoke.py --binary build/native-smoke/translation-smoke 2>&1 | tee build/native-smoke-results.txt
       - name: Execute pinned ASR models
         run: |
-          python -m pip install sherpa-onnx==1.13.8
+          python -m pip install sherpa-onnx==1.13.8 pyarrow==21.0.0 soundfile==0.13.1
           set -o pipefail
           python scripts/asr_smoke.py 2>&1 | tee build/asr-smoke-results.txt
       - uses: actions/upload-artifact@v4

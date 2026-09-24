@@ -32,3 +32,34 @@ for name, digest in assets:
     print(name, result, 'CPU seconds', round(time.monotonic()-started, 3), flush=True)
     del stream, r
 print('PASS: Parakeet English, Qwen3 Mandarin and per-stream language prompting')
+
+# Recorded Dutch, FLEURS test split row 0 (CC-BY-4.0, Google FLEURS).
+# Keep corpus/model weights outside Git and pin both archive and extracted sample.
+name = 'sherpa-onnx-nemotron-3.5-asr-streaming-0.6b-560ms-int8-2026-06-11'
+archive = root/(name+'.tar.bz2')
+urllib.request.urlretrieve('https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/'+archive.name, archive)
+with archive.open('rb') as f: assert hashlib.file_digest(f, 'sha256').hexdigest() == 'c6bf5e0df765f9d5b43bc9e0536d4b4b3e7d40bdf5ecf13e45f134c51c05ae3a'
+with tarfile.open(archive) as f: f.extractall(root, filter='data')
+corpus = root/'dutch.parquet'
+urllib.request.urlretrieve('https://huggingface.co/datasets/google/fleurs/resolve/168de341b3db6859a9bac1c50a2ef5e3b47647e0/nl_nl/test/0000.parquet', corpus)
+with corpus.open('rb') as f: assert hashlib.file_digest(f, 'sha256').hexdigest() == 'a89456e5219b9cd311d1fedc9088a8fcaa4724c840de6db32df613a7968b15a1'
+import pyarrow.parquet as pq, soundfile as sf, io
+row = pq.read_table(corpus).slice(0,1).to_pylist()[0]
+assert hashlib.sha256(row['audio']['bytes']).hexdigest() == '4cfe25af0596ee2c709a9a375e1ac456d9821d91a067f7bfbf63ab07ba89e9cf'
+audio, rate = sf.read(io.BytesIO(row['audio']['bytes']), dtype='float32')
+d=root/name
+r=sherpa_onnx.OnlineRecognizer.from_transducer(tokens=str(d/'tokens.txt'),encoder=str(d/'encoder.int8.onnx'),decoder=str(d/'decoder.int8.onnx'),joiner=str(d/'joiner.int8.onnx'),num_threads=2)
+stream=r.create_stream();stream.set_option('language','nl');partials=[];started=time.monotonic()
+for offset in range(0,len(audio),1600):
+    stream.accept_waveform(rate,audio[offset:offset+1600])
+    while r.is_ready(stream): r.decode_stream(stream)
+    text=r.get_result(stream)
+    if text and (not partials or text!=partials[-1]): partials.append(text)
+stream.accept_waveform(rate,np.zeros(16000,np.float32));stream.input_finished()
+while r.is_ready(stream): r.decode_stream(stream)
+result=r.get_result(stream)
+assert len(partials)>=2 and 'organisaties' in result.lower() and 'beter' in result.lower()
+print('Nemotron Dutch CPU:',result,'partials',len(partials),'seconds',round(time.monotonic()-started,3),flush=True)
+# New stream / language option after endpoint reset must remain valid.
+r.reset(stream);stream.set_option('language','en')
+print('PASS: recorded Dutch streaming, language prompting and stream reset')
