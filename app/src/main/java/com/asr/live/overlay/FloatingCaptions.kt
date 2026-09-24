@@ -27,6 +27,7 @@ class FloatingCaptions(private val context: Context, private val prefs: OverlayP
     private val handler = Handler(Looper.getMainLooper())
     private var window: WindowManager? = null
     private var root: LinearLayout? = null
+    private var added = false
     private var target: TextView? = null
     private var source: TextView? = null
     private var label: TextView? = null
@@ -77,7 +78,8 @@ class FloatingCaptions(private val context: Context, private val prefs: OverlayP
                 context.getSystemService(InputManager::class.java).maximumObscuringOpacityForTouch else 0.8f
             p.alpha = OverlayPolicy.windowAlpha(o.touchThrough, maximum)
             place()
-            if (!view.isAttachedToWindow) window!!.addView(view, p) else window!!.updateViewLayout(view, p)
+            // addView precedes the first layout/attachment; another state emission may arrive first.
+            if (!added) { window!!.addView(view, p); added = true } else window!!.updateViewLayout(view, p)
         } catch (e: RuntimeException) {
             hide()
             prefs.update(o.copy(enabled = false))
@@ -146,6 +148,6 @@ class FloatingCaptions(private val context: Context, private val prefs: OverlayP
         }
     }
     private fun refreshDisplay() { hide(); render(rows, lifecycle, language) }
-    fun hide() { root?.let { if (it.isAttachedToWindow) runCatching { window?.removeViewImmediate(it) } }; dragging = false; root = null; params = null; target = null; source = null; label = null; window = null }
+    fun hide() { root?.let { if (added) runCatching { window?.removeViewImmediate(it) } }; added = false; dragging = false; root = null; params = null; target = null; source = null; label = null; window = null }
     override fun close() { displays.unregisterDisplayListener(displayListener); hide() }
 }

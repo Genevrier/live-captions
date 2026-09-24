@@ -57,6 +57,14 @@ class FloatingCaptionsTest {
         ShadowSettings.setCanDrawOverlays(false); render()
         assertTrue(views().isEmpty())
     }
+    @Test fun updatesBeforeFirstLayoutDoNotCreateDuplicateWindows() {
+        prefs.update(OverlayOptions(enabled = true))
+        shadowOf(Looper.getMainLooper()).idle()
+        repeat(3) { overlay.render(listOf(caption), ListeningState.LISTENING, "English") }
+        assertEquals(CaptionState.error.value, 1, views().size)
+        overlay.hide()
+        assertTrue(views().isEmpty())
+    }
     @Test fun realWindowUsesOverlayTypeAndSafeTouchThroughFlags() {
         prefs.update(OverlayOptions(enabled = true, touchThrough = true, lines = 4, source = true))
         render()
