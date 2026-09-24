@@ -76,6 +76,13 @@ class SegmentLedger(private val maxCaptions: Int = 150) {
     @Synchronized fun current(key: SegmentKey) = key.session == session && captions[key.id]?.key == key &&
         captions[key.id]?.stage != CaptionStage.CANCELLED
     @Synchronized fun snapshot() = captions.values.toList()
+    @Synchronized fun discontinuity(generation: Long) {
+        if (generation != session) return
+        active?.let { id -> captions[id]?.let { row ->
+            captions[id] = row.copy(stage = CaptionStage.SKIPPED, detail = "Audio gap; recognition restarted")
+        } }
+        active = null; stable.reset()
+    }
     @Synchronized fun cancel() {
         captions.replaceAll { _, c -> if (c.stage == CaptionStage.PROVISIONAL) c.copy(stage = CaptionStage.CANCELLED, detail = "Stopped") else c }
         active = null

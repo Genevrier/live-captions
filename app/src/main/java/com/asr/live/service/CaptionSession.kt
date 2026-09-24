@@ -71,16 +71,14 @@ class CaptionSession(
                 if (chunk == null) { Thread.sleep(10); continue }
                 if (expectedSequence != 0L && chunk.sequence != expectedSequence + 1) {
                     // Audio loss is a discontinuity: do not join speech from either side into one hypothesis.
-                    engine.release(); engine = create()
+                    checkNotNull(engine).release(); engine = null; engine = create()
                     pcm.take(); lastProvisionalText = ""
-                    CaptionState.source(generation, "[audio gap]", true, now())?.let {
-                        CaptionState.skip(it.key, "Audio was dropped; recognition restarted")
-                    }
+                    CaptionState.discontinuity(generation)
                 }
                 expectedSequence = chunk.sequence
                 pcm.append(chunk.samples)
                 val start = now()
-                engine.accept(chunk.samples)
+                checkNotNull(engine).accept(chunk.samples)
                 val duration = now() - start
                 computeMs += duration; audioMs += chunk.samples.size / 16
                 CaptionState.metrics(generation) { it.copy(asrMs = duration,

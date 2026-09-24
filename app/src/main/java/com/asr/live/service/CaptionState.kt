@@ -39,6 +39,7 @@ object CaptionState {
         ledger.translate(key, text, rank, final).also { if (it) publish() }
     @Synchronized fun skip(key: SegmentKey, reason: String) { ledger.skip(key, reason); publish() }
     fun current(key: SegmentKey) = ledger.current(key)
+    @Synchronized fun discontinuity(id: Long) { ledger.discontinuity(id); publish() }
     @Synchronized fun cancel(id: Long) {
         if (id != generation) return
         ledger.cancel(); publish(); setLifecycle(ListeningState.STOPPING)
