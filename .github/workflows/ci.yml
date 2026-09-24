@@ -94,3 +94,11 @@ jobs:
           name: live-captions-arm64-sha256
           path: app-release.apk.sha256
           if-no-files-found: error
+
+      - name: Upload unit test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: unit-test-reports
+          path: app/build/test-results/testDebugUnitTest/*.xml
+          if-no-files-found: warn

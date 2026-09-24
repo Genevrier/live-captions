@@ -2,32 +2,40 @@ package com.asr.live.model
 
 import android.content.Context
 import java.io.File
+import java.util.Properties
 
-/** On-disk locations for downloaded models and the bundled VAD. */
 object ModelStore {
-
     fun dir(ctx: Context, id: String): File = File(File(ctx.filesDir, "models"), id)
-
-    fun isPresent(ctx: Context, info: ModelInfo): Boolean {
-        val d = dir(ctx, info.id)
-        val allPresent = info.requiredFiles.all { File(d, it).let { f -> f.exists() && f.length() > 0 } }
-        // Reject truncated weights (e.g. an interrupted/partial download) so we show the
-        // download gate again instead of feeding a corrupt model to native code (which aborts).
-        val encoderOk = File(d, info.encoder).length() >= info.encoderMinBytes
-        val decoderOk = File(d, info.decoder).length() >= info.decoderMinBytes
-        return allPresent && encoderOk && decoderOk
+    fun isPresent(ctx: Context, info: ModelInfo): Boolean = isPresent(dir(ctx, info.id), info)
+    fun isPresent(d: File, info: ModelInfo): Boolean = runCatching {
+        val manifest = Properties().apply { File(d, "verified.properties").inputStream().use { load(it) } }
+        manifest.getProperty("archive") == info.sha256 && info.requiredFiles.all {
+            val file = File(d, it)
+            file.isFile && file.length() > 0 && file.length().toString() == manifest.getProperty("size.$it")
+        }
+    }.getOrDefault(false)
+    fun writeManifest(d: File, info: ModelInfo) {
+        val manifest = Properties().apply {
+            setProperty("archive", info.sha256)
+            for (name in info.requiredFiles) {
+                val file = File(d, name)
+                check(file.isFile && file.length() > 0) { "Missing model file: $name" }
+                setProperty("size.$name", file.length().toString())
+                setProperty("sha.$name", VerifiedFiles.sha256(file))
+            }
+        }
+        File(d, "verified.properties").outputStream().use { manifest.store(it, "Verified archive contents") }
     }
-
-    /**
-     * Silero VAD ships in assets; sherpa-onnx (with a null AssetManager) needs a real
-     * filesystem path, so copy it out once into filesDir.
-     */
+    fun verify(ctx: Context, info: ModelInfo) {
+        val d = dir(ctx, info.id)
+        check(isPresent(d, info)) { "Download required models first" }
+        val manifest = Properties().apply { File(d, "verified.properties").inputStream().use { load(it) } }
+        for (name in info.requiredFiles) VerifiedFiles.check(File(d, name), manifest.getProperty("size.$name").toLong(), manifest.getProperty("sha.$name"))
+    }
     fun vadPath(ctx: Context): String {
         val out = File(ctx.filesDir, "silero_vad.onnx")
-        if (!out.exists() || out.length() == 0L) {
-            ctx.assets.open("silero_vad.onnx").use { input ->
-                out.outputStream().use { input.copyTo(it) }
-            }
+        if (!out.exists() || out.length() == 0L) ctx.assets.open("silero_vad.onnx").use { input ->
+            out.outputStream().use { input.copyTo(it) }
         }
         return out.absolutePath
     }

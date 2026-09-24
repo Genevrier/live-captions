@@ -32,8 +32,11 @@ data class ModelInfo(
     val decoderMinBytes: Long = 0,
     val sha256: String = "",
     val extraFiles: List<String> = emptyList(),
+    val languages: Set<String> = setOf("en"),
+    val archiveBytes: Long = 0,
 ) {
-    val isMultilingual: Boolean get() = kind == EngineKind.WHISPER || kind == EngineKind.NEMOTRON
+    fun supports(language: String) = language in languages
+    val isMultilingual: Boolean get() = languages.size > 1
 
     /** Files that must exist on disk for the model to be considered installed. */
     val requiredFiles: List<String>
@@ -61,6 +64,8 @@ object ModelCatalog {
         shortName = "Nemotron",
         tagline = "Multilingual live captions · CPU, 560 ms",
         kind = EngineKind.NEMOTRON,
+        languages = setOf("nl", "en", "zh"),
+        archiveBytes = 475271763,
         url = REL + "sherpa-onnx-nemotron-3.5-asr-streaming-0.6b-560ms-int8-2026-06-11.tar.bz2",
         approxMB = 475,
         encoder = "encoder.int8.onnx",
@@ -99,10 +104,13 @@ object ModelCatalog {
 
     val WHISPER_BASE = ModelInfo(
         id = "whisper-base",
+        archiveBytes = 207557382,
+        sha256 = "911b2083efd7c0dca2ac3b358b75222660dc09fb716d64fbfc417ba6c99ff3de",
         displayName = "Multilingual · Whisper base",
         shortName = "Multi-base",
         tagline = "~90 languages incl. Turkish — fast, lighter",
         kind = EngineKind.WHISPER,
+        languages = setOf("nl", "en", "zh", "fr"),
         url = REL + "sherpa-onnx-whisper-base.tar.bz2",
         approxMB = 197,
         encoder = "base-encoder.int8.onnx",
@@ -118,6 +126,7 @@ object ModelCatalog {
         shortName = "Multi-small",
         tagline = "~90 languages incl. Turkish — best accuracy",
         kind = EngineKind.WHISPER,
+        languages = setOf("nl", "en", "zh", "fr"),
         url = REL + "sherpa-onnx-whisper-small.tar.bz2",
         approxMB = 609,
         encoder = "small-encoder.int8.onnx",
@@ -128,7 +137,7 @@ object ModelCatalog {
     )
 
     // Order = recommended first within each tier; small (better) listed before base.
-    val ALL = listOf(NEMOTRON, WHISPER_SMALL, WHISPER_BASE, STREAMING, PARAKEET)
+    val ALL = listOf(NEMOTRON, WHISPER_BASE)
     val DEFAULT = NEMOTRON
 
     fun byId(id: String?): ModelInfo? = ALL.firstOrNull { it.id == id }

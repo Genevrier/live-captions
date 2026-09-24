@@ -18,7 +18,8 @@ class StreamingEngine(
     info: ModelInfo,
     private val onPartial: (String) -> Unit,
     private val onFinal: (String) -> Unit,
-    language: String = "en",
+    private val language: String = "en",
+    threads: Int = 6,
 ) : AsrEngine {
 
     private val recognizer = OnlineRecognizer(
@@ -31,7 +32,7 @@ class StreamingEngine(
                     joiner = File(modelDir, info.joiner).absolutePath,
                 ),
                 tokens = File(modelDir, "tokens.txt").absolutePath,
-                numThreads = 6,
+                numThreads = threads,
                 provider = "cpu",
                 modelType = if (info.kind == com.asr.live.model.EngineKind.NEMOTRON) "" else "zipformer2",
             ),
@@ -52,8 +53,9 @@ class StreamingEngine(
 
         val text = recognizer.getResult(stream).text
         if (recognizer.isEndpoint(stream)) {
-            if (text.isNotBlank()) onFinal(text)
+            onFinal(text)
             recognizer.reset(stream)
+            stream.setOption("language", language)
             lastPartial = ""
             onPartial("")
         } else if (text != lastPartial) {

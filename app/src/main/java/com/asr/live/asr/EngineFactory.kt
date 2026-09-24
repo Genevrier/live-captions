@@ -17,13 +17,14 @@ object EngineFactory {
         whisperTask: String,
         onPartial: (String) -> Unit,
         onFinal: (String) -> Unit,
+        threads: Int = 6,
     ): AsrEngine {
         val dir = ModelStore.dir(ctx, info.id)
         return when (info.kind) {
             EngineKind.STREAMING_ZIPFORMER ->
-                StreamingEngine(dir, info, onPartial, onFinal)
+                StreamingEngine(dir, info, onPartial, onFinal, language, threads)
             EngineKind.NEMOTRON ->
-                StreamingEngine(dir, info, onPartial, onFinal, language)
+                StreamingEngine(dir, info, onPartial, onFinal, language, threads)
             EngineKind.OFFLINE_PARAKEET ->
                 OfflineVadEngine(dir, ModelStore.vadPath(ctx), info, onPartial, onFinal)
             EngineKind.WHISPER ->

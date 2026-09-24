@@ -1,80 +1,60 @@
 package com.asr.live.service
 
+import com.asr.live.pipeline.*
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
-/**
- * Process-wide bridge between [CaptionService] (writer) and the UI (reader).
- * Plain singleton so the UI keeps observing transcripts even across config changes.
- */
+enum class ListeningState { STOPPED, STARTING, LISTENING, STOPPING }
+data class Performance(
+    val asrMs: Long = 0, val asrRtf: Double = 0.0, val translationMs: Long = 0,
+    val provisionalLatencyMs: Long? = null, val finalLatencyMs: Long? = null,
+    val audioDepth: Int = 0, val provisionalDepth: Int = 0, val finalDepth: Int = 0,
+    val backlogMs: Long = 0, val droppedAudioMs: Long = 0, val skippedTranslations: Int = 0,
+    val asr: String = "", val translator: String = "ML Kit", val backend: String = "CPU",
+    val profile: String = "Dutch → English", val chunk: String = "560 ms", val threads: Int = 6,
+)
 object CaptionState {
-
-    /** A finalized caption. [original] holds the pre-translation text when translating. */
-    data class Line(val id: Long, val text: String, val original: String? = null, val revision: Int = 0, val state: String = "final")
-
-    private val _lines = MutableStateFlow<List<Line>>(emptyList())
-    val lines: StateFlow<List<Line>> = _lines.asStateFlow()
-
-    private val _partial = MutableStateFlow("")
-    val partial: StateFlow<String> = _partial.asStateFlow()
-
+    private val ledger = SegmentLedger()
+    private val _lines = MutableStateFlow<List<Caption>>(emptyList())
+    val lines = _lines.asStateFlow()
+    private val _lifecycle = MutableStateFlow(ListeningState.STOPPED)
+    val lifecycle = _lifecycle.asStateFlow()
     private val _running = MutableStateFlow(false)
-    val running: StateFlow<Boolean> = _running.asStateFlow()
-
+    val running = _running.asStateFlow()
     private val _error = MutableStateFlow<String?>(null)
-    val error: StateFlow<String?> = _error.asStateFlow()
-
-    /** Transient status (e.g. "Downloading translation model…"); null when idle. */
+    val error = _error.asStateFlow()
     private val _status = MutableStateFlow<String?>(null)
-    val status: StateFlow<String?> = _status.asStateFlow()
-
-    private var counter = 0L
-
-    @Synchronized
-    fun appendFinal(text: String, original: String? = null) {
-        val t = text.trim()
-        if (t.isEmpty()) return
-        _lines.value = (_lines.value + Line(counter++, t, original?.trim()?.ifEmpty { null }))
-            .takeLast(MAX_LINES)
-        _partial.value = ""
+    val status = _status.asStateFlow()
+    private val _metrics = MutableStateFlow(Performance())
+    val metrics = _metrics.asStateFlow()
+    @Volatile private var generation = -1L
+    @Synchronized fun begin(id: Long, config: SessionConfig, modelName: String) {
+        generation = id; ledger.start(id); publish()
+        _metrics.value = Performance(asr = modelName, profile = config.profile.label, threads = config.threads)
+        _error.value = null; setLifecycle(ListeningState.STARTING)
     }
-
-    @Synchronized
-    fun appendSource(text: String): Long {
-        val id = counter++
-        _lines.value = (_lines.value + Line(id, "Translating…", text.trim(), state = "provisional"))
-            .takeLast(MAX_LINES)
-        _partial.value = ""
-        return id
+    @Synchronized fun source(id: Long, text: String, endpoint: Boolean, nowMs: Long): Caption? =
+        ledger.source(id, text, endpoint, nowMs)?.also { publish() }
+    @Synchronized fun translated(key: SegmentKey, text: String, rank: Int, final: Boolean): Boolean =
+        ledger.translate(key, text, rank, final).also { if (it) publish() }
+    @Synchronized fun skip(key: SegmentKey, reason: String) { ledger.skip(key, reason); publish() }
+    fun current(key: SegmentKey) = ledger.current(key)
+    @Synchronized fun cancel(id: Long) {
+        if (id != generation) return
+        ledger.cancel(); publish(); setLifecycle(ListeningState.STOPPING)
     }
-
-    @Synchronized
-    fun applyTranslation(id: Long, revision: Int, translated: String) {
-        _lines.value = _lines.value.map { line ->
-            if (line.id == id && revision >= line.revision) line.copy(
-                text = translated.trim(), revision = revision, state = "final"
-            ) else line
-        }
+    @Synchronized fun stopped(id: Long) {
+        if (id != generation) return
+        setLifecycle(ListeningState.STOPPED); _status.value = null
     }
-
-    @Synchronized
-    fun failTranslation(id: Long, reason: String) {
-        _lines.value = _lines.value.map { line ->
-            if (line.id == id && line.state == "provisional") line.copy(text = reason, state = "translation failed")
-            else line
-        }
+    @Synchronized fun listening(id: Long) { if (id == generation) setLifecycle(ListeningState.LISTENING) }
+    @Synchronized fun metrics(id: Long, update: (Performance) -> Performance) {
+        if (id == generation) _metrics.value = update(_metrics.value)
     }
-
-    fun setPartial(text: String) { _partial.value = text.trim() }
-    fun setRunning(running: Boolean) { _running.value = running }
-    fun setError(message: String?) { _error.value = message }
-    fun setStatus(message: String?) { _status.value = message }
-
-    fun clear() {
-        _lines.value = emptyList()
-        _partial.value = ""
-    }
-
-    private const val MAX_LINES = 500
+    @Synchronized fun error(id: Long, text: String) { if (id == generation) _error.value = text }
+    fun setError(text: String?) { _error.value = text }
+    fun setStatus(text: String?) { _status.value = text }
+    @Synchronized fun clear() { ledger.clear(); publish() }
+    private fun publish() { _lines.value = ledger.snapshot() }
+    private fun setLifecycle(value: ListeningState) { _lifecycle.value = value; _running.value = value != ListeningState.STOPPED }
 }

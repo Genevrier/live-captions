@@ -12,7 +12,7 @@ import com.google.mlkit.nl.translate.TranslatorOptions
  *
  * All methods block; call them from a worker thread (never the main thread).
  */
-class MlKitTranslator(sourceCode: String, targetCode: String) {
+class MlKitTranslator(sourceCode: String, targetCode: String) : LocalTranslator {
 
     private val source = TranslateLanguage.fromLanguageTag(sourceCode)
     private val target = TranslateLanguage.fromLanguageTag(targetCode)
@@ -35,12 +35,12 @@ class MlKitTranslator(sourceCode: String, targetCode: String) {
     }
 
     /** Fails visibly when the on-device translator cannot produce a result. */
-    fun translate(text: String): String {
+    override fun translate(text: String): String {
         val c = client ?: error("Unsupported translation direction")
         return Tasks.await(c.translate(text))
     }
 
-    fun close() {
+    override fun close() {
         client?.close()
     }
 }
