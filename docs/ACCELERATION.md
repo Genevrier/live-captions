@@ -77,3 +77,13 @@ requires an on-device OpenCL capability check, identical CPU/GPU translation
 samples and sustained concurrent ASR benchmarks, including thermal stabilization,
 final-caption latency and backlog. RAM capacity alone is not performance evidence.
 Hy-MT2 remains CPU in every profile and quality setting.
+
+The matching SDK's `qnn-context-binary-utility` successfully parsed all three
+released contexts on the aarch64 Linux host. They report build
+`v2.40.0.251030114326_189385`, core API 2.30.0, backend API 5.40.0, context blob
+3.3.3, `socModel=69` (SM8750), and `dspArch=79`. The encoder has a `prompt_index`
+input and 128-bin features (sherpa derives its feature configuration from the
+context). Extracted graph signatures are recorded in
+[validation/qnn-context-metadata.json](validation/qnn-context-metadata.json).
+Context parsing validates metadata/runtime format compatibility; it does not
+execute the NPU graphs.

@@ -1,0 +1,198 @@
+{
+  "encoder": {
+    "buildId": "v2.40.0.251030114326_189385",
+    "coreApiVersion": "2.30.0",
+    "backendApiVersion": "5.40.0",
+    "contextBlobVersion": "3.3.3",
+    "socModel": 69,
+    "dspArch": 79,
+    "inputs": [
+      {
+        "name": "x_65_56",
+        "dimensions": [
+          1,
+          65,
+          128
+        ],
+        "type": "QNN_DATATYPE_UFIXED_POINT_16"
+      },
+      {
+        "name": "cache_last_channel",
+        "dimensions": [
+          1,
+          56,
+          1024,
+          24
+        ],
+        "type": "QNN_DATATYPE_UFIXED_POINT_16"
+      },
+      {
+        "name": "cache_last_time",
+        "dimensions": [
+          1,
+          1024,
+          8,
+          24
+        ],
+        "type": "QNN_DATATYPE_UFIXED_POINT_16"
+      },
+      {
+        "name": "cache_last_channel_len",
+        "dimensions": [
+          1
+        ],
+        "type": "QNN_DATATYPE_INT_32"
+      },
+      {
+        "name": "prompt_index",
+        "dimensions": [
+          1
+        ],
+        "type": "QNN_DATATYPE_INT_32"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "next_cache_last_channel_len",
+        "dimensions": [
+          1
+        ],
+        "type": "QNN_DATATYPE_INT_32"
+      },
+      {
+        "name": "next_cache_last_channel",
+        "dimensions": [
+          1,
+          24,
+          56,
+          1024
+        ],
+        "type": "QNN_DATATYPE_UFIXED_POINT_16"
+      },
+      {
+        "name": "next_cache_last_time",
+        "dimensions": [
+          1,
+          24,
+          1024,
+          8
+        ],
+        "type": "QNN_DATATYPE_UFIXED_POINT_16"
+      },
+      {
+        "name": "encoder_out",
+        "dimensions": [
+          1,
+          1024,
+          7
+        ],
+        "type": "QNN_DATATYPE_UFIXED_POINT_16"
+      }
+    ]
+  },
+  "decoder": {
+    "buildId": "v2.40.0.251030114326_189385",
+    "coreApiVersion": "2.30.0",
+    "backendApiVersion": "5.40.0",
+    "contextBlobVersion": "3.3.3",
+    "socModel": 69,
+    "dspArch": 79,
+    "inputs": [
+      {
+        "name": "y",
+        "dimensions": [
+          1,
+          1
+        ],
+        "type": "QNN_DATATYPE_INT_32"
+      },
+      {
+        "name": "h",
+        "dimensions": [
+          2,
+          640,
+          1
+        ],
+        "type": "QNN_DATATYPE_FLOAT_16"
+      },
+      {
+        "name": "c",
+        "dimensions": [
+          2,
+          640,
+          1
+        ],
+        "type": "QNN_DATATYPE_FLOAT_16"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "next_h",
+        "dimensions": [
+          2,
+          1,
+          640
+        ],
+        "type": "QNN_DATATYPE_FLOAT_16"
+      },
+      {
+        "name": "next_c",
+        "dimensions": [
+          2,
+          1,
+          640
+        ],
+        "type": "QNN_DATATYPE_FLOAT_16"
+      },
+      {
+        "name": "decoder_out",
+        "dimensions": [
+          1,
+          1,
+          640
+        ],
+        "type": "QNN_DATATYPE_FLOAT_16"
+      }
+    ]
+  },
+  "joiner": {
+    "buildId": "v2.40.0.251030114326_189385",
+    "coreApiVersion": "2.30.0",
+    "backendApiVersion": "5.40.0",
+    "contextBlobVersion": "3.3.3",
+    "socModel": 69,
+    "dspArch": 79,
+    "inputs": [
+      {
+        "name": "encoder_out",
+        "dimensions": [
+          1,
+          1024,
+          1
+        ],
+        "type": "QNN_DATATYPE_UFIXED_POINT_16"
+      },
+      {
+        "name": "decoder_out",
+        "dimensions": [
+          1,
+          640,
+          1
+        ],
+        "type": "QNN_DATATYPE_UFIXED_POINT_16"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "logits",
+        "dimensions": [
+          1,
+          1,
+          1,
+          13088
+        ],
+        "type": "QNN_DATATYPE_UFIXED_POINT_16"
+      }
+    ]
+  }
+}
