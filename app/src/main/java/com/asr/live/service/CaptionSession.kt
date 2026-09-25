@@ -11,14 +11,21 @@ import com.asr.live.i18n.NativeTranslator
 import com.asr.live.model.*
 import com.asr.live.pipeline.*
 import java.util.concurrent.CancellationException
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.ExecutionException
+import java.util.concurrent.FutureTask
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.TimeoutException
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
+import java.util.concurrent.atomic.AtomicReference
 
 internal data class AudioChunk(val samples: FloatArray, val capturedAtNs: Long, val sequence: Long)
 internal data class CorrectionRequest(val request: TranslationRequest, val samples: FloatArray, val enqueuedAtNs: Long)
 internal data class TranslationRequest(
     val key: SegmentKey,
     val text: String,
+    val portionIdentity: TranslationPortionIdentity = TranslationPortionIdentity(key.session, key.id, text),
     val requestId: Long = 0,
     val createdAtNs: Long = 0,
     val queuedAtNs: Long = 0,
@@ -45,12 +52,15 @@ class CaptionSession(
     private val qualityProvisional = BoundedMailbox<TranslationRequest>(1)
     private val finals = BoundedMailbox<TranslationRequest>(2)
     private val correctionQueue = BoundedMailbox<CorrectionRequest>(1)
+    private val correctionDecodeThreads = ConcurrentHashMap.newKeySet<Thread>()
     private val correctionBusy = AtomicBoolean(false)
     @Volatile private var correctionReady = false
     @Volatile private var correctionRtf = 0.0
     private val corrector = Thread(::correctLoop, "endpoint-correction")
     private val sequence = AtomicLong()
     private val requestSequence = AtomicLong()
+    private val activeHyRequest = AtomicReference<TranslationRequest?>()
+    private val hyScheduleLock = Any()
     private val sessionStartedAtNs = SystemClock.elapsedRealtimeNanos()
     private val captureFinished = AtomicBoolean(false)
     private val inferenceBusy = AtomicBoolean(false)
@@ -114,8 +124,15 @@ class CaptionSession(
         listOf(asr, opus, final, corrector).forEach { runCatching { it.interrupt() } }
     }
     /** A short bounded wait. Service callers retry this from an IO coroutine. */
-    fun join(timeoutMs: Long = 250): Boolean = joinThreadsWithin(
-        listOf(asr, capture.threadForJoin(), if (opusBenchmarkEnabled) opus else null, final, corrector), timeoutMs)
+    fun join(timeoutMs: Long = 250): Boolean {
+        val startedNs = System.nanoTime()
+        val workersStopped = joinThreadsWithin(
+            listOf(asr, capture.threadForJoin(), if (opusBenchmarkEnabled) opus else null, final, corrector), timeoutMs)
+        if (!workersStopped) return false
+        val remainingMs = TimeUnit.NANOSECONDS.toMillis(
+            TimeUnit.MILLISECONDS.toNanos(timeoutMs) - (System.nanoTime() - startedNs)).coerceAtLeast(0)
+        return joinThreadsWithin(correctionDecodeThreads.toList(), remainingMs)
+    }
     private fun fail(message: String) {
         if (failureReported.compareAndSet(false, true) && lifecycle.cancel()) {
             try { onFailure(message) } finally { interruptWorkers() }
@@ -228,6 +245,7 @@ class CaptionSession(
         val row = CaptionState.source(generation, text, false, time) ?: return
         lastPartialAtNs = atNs
         trace("asr-partial", row.key, details = "atNs=$atNs")
+        cancelHyIfIncompatible(row)
         if (!ProvisionalTranslationPolicy.shouldTranslate(lastProvisionalText, row.stableSource, time, lastProvisionalAt)) return
         lastProvisionalAt = time; lastProvisionalText = row.stableSource
         val request = TranslationRequest(row.key, row.stableSource,
@@ -251,7 +269,7 @@ class CaptionSession(
         trace("asr-endpoint", row.key, details = "atNs=$atNs endpointWaitMs=${endpointWaitMs ?: -1}")
         lastProvisionalText = ""
         // Endpoints use Hy once; OPUS is only a live-prefix A/B translator.
-        val request = TranslationRequest(row.key, text,
+        val request = TranslationRequest(row.key, row.source,
             requestId = requestSequence.incrementAndGet(), createdAtNs = atNs, queuedAtNs = atNs,
             endpointAt = at, sourceAudioAtNs = segmentAudioStartedAtNs ?: atNs,
             stableSourceAtNs = atNs, isFinal = true)
@@ -280,6 +298,7 @@ class CaptionSession(
         var engine: com.asr.live.asr.EndpointCorrector? = null
         var performanceHint: WorkerPerformanceHint? = null
         var startupReported = false
+        var engineRetiredByDecode = false
         try {
             performanceHint = WorkerPerformanceHint(ctx, 1500)
             if (lifecycle.isCancelled()) return
@@ -294,6 +313,7 @@ class CaptionSession(
                 if (job == null) {
                     Thread.sleep(20); continue
                 }
+                var samplesOwnedByDecode = false
                 try {
                     if (!CaptionState.current(job.request.key)) continue
                     val correctionWaitMs = ((nowNs() - job.enqueuedAtNs) / 1_000_000L).coerceAtLeast(0)
@@ -301,7 +321,10 @@ class CaptionSession(
                     trace("correction-started", job.request.key, job.request.requestId,
                         "queueWaitMs=$correctionWaitMs")
                     val started = now()
-                    val candidate = engine.decode(job.samples)
+                    val candidate = decodeWithinDeadline(checkNotNull(engine), job,
+                        CorrectionPolicy.remainingNanos(job.enqueuedAtNs, nowNs()),
+                        onWorkerStarted = { samplesOwnedByDecode = true },
+                        onEngineRetired = { engineRetiredByDecode = true })
                     val elapsed = now() - started
                     performanceHint?.report(elapsed)
                     correctionRtf = elapsed.toDouble() / maxOf(1, job.samples.size / 16)
@@ -313,6 +336,7 @@ class CaptionSession(
                         // second hypothesis. The accepted source and translation are published
                         // together as one new revision.
                         enqueueFinal(job.request.copy(text = candidate, correctionSource = candidate,
+                            portionIdentity = TranslationPortionIdentity(generation, job.request.key.id, candidate),
                             requestId = requestSequence.incrementAndGet(), queuedAtNs = nowNs())); depths()
                     } else {
                         CaptionState.metrics(generation) { it.copy(skippedCorrections = it.skippedCorrections + 1) }
@@ -320,11 +344,26 @@ class CaptionSession(
                     }
                 } catch (t: Throwable) {
                     if (t is InterruptedException) throw t
+                    if (t is TimeoutException) {
+                        correctionReady = false
+                        CaptionState.metrics(generation) { it.copy(skippedCorrections = it.skippedCorrections + 1) }
+                        trace("correction-deadline-exceeded", job.request.key, job.request.requestId,
+                            "deadlineMs=${CorrectionPolicy.MAX_LATENCY_MS}; fallback=unrevised")
+                        if (!lifecycle.isCancelled()) enqueueFinal(job.request)
+                        correctionQueue.drain().forEach { pending ->
+                            pending.samples.fill(0f)
+                            if (!lifecycle.isCancelled()) enqueueFinal(pending.request)
+                        }
+                        break
+                    }
                     if (!lifecycle.isCancelled()) {
                         CaptionState.error(generation, "Optional correction failed; using Nemotron text: ${t.message}")
                         enqueueFinal(job.request)
                     }
-                } finally { job.samples.fill(0f); correctionBusy.set(false) }
+                } finally {
+                    if (!samplesOwnedByDecode) job.samples.fill(0f)
+                    correctionBusy.set(false)
+                }
             }
         } catch (e: InterruptedException) {
             if (!startupReported) { failStartupIfUnreported(WORKER_CORRECTION, e); startupReported = true }
@@ -337,18 +376,102 @@ class CaptionSession(
             try {
                 runCatching { performanceHint?.close() }
                 correctionReady = false
-                engine?.close()
+                if (!engineRetiredByDecode) engine?.close()
             } finally { lifecycle.markCorrectionFinished() }
         }
     }
+
+    /**
+     * Enforce the Parakeet endpoint budget while keeping recognizer/audio ownership safe.
+     * If native decode outlives its deadline, the caller queues the uncorrected final now;
+     * the timed-out worker releases PCM and the recognizer only after decode actually exits.
+     */
+    private fun decodeWithinDeadline(
+        engine: com.asr.live.asr.EndpointCorrector,
+        job: CorrectionRequest,
+        remainingNanos: Long,
+        onWorkerStarted: () -> Unit,
+        onEngineRetired: () -> Unit,
+    ): String {
+        if (remainingNanos <= 0) throw TimeoutException("Parakeet correction deadline elapsed in queue")
+        val useGate = NativeResourceUseGate()
+        fun closeAfterDecode() { runCatching { engine.close() } }
+        val task = FutureTask<String> {
+            if (!useGate.beginCall()) {
+                job.samples.fill(0f)
+                throw CancellationException("Parakeet decode cancelled before start")
+            }
+            try { engine.decode(job.samples) }
+            finally {
+                job.samples.fill(0f)
+                if (useGate.finishCall()) closeAfterDecode()
+            }
+        }
+        val worker = Thread({
+            try { task.run() }
+            finally { correctionDecodeThreads.remove(Thread.currentThread()) }
+        }, "parakeet-decode-${job.request.requestId}").apply { isDaemon = true }
+        correctionDecodeThreads.add(worker)
+        try { worker.start() }
+        catch (t: Throwable) {
+            correctionDecodeThreads.remove(worker)
+            job.samples.fill(0f)
+            throw t
+        }
+        onWorkerStarted()
+        try {
+            return task.get(remainingNanos, TimeUnit.NANOSECONDS)
+        } catch (timeout: TimeoutException) {
+            onEngineRetired()
+            val retirement = useGate.retire()
+            task.cancel(retirement.callInUse)
+            if (!retirement.callInUse) job.samples.fill(0f)
+            if (retirement.closeNow) closeAfterDecode()
+            throw timeout
+        } catch (interrupted: InterruptedException) {
+            onEngineRetired()
+            val retirement = useGate.retire()
+            task.cancel(retirement.callInUse)
+            if (!retirement.callInUse) job.samples.fill(0f)
+            if (retirement.closeNow) closeAfterDecode()
+            throw interrupted
+        } catch (failure: ExecutionException) {
+            val cause = failure.cause ?: failure
+            if (cause is Exception) throw cause
+            throw RuntimeException(cause)
+        }
+    }
+
     private fun enqueueFinal(request: TranslationRequest) {
         val queued = request.copy(queuedAtNs = nowNs())
         trace("translation-requested", queued.key, queued.requestId,
             "branch=final createdAtNs=${queued.createdAtNs} queuedAtNs=${queued.queuedAtNs}")
-        finals.offer(queued)?.let {
+        val dropped = synchronized(hyScheduleLock) {
+            val lost = finals.offer(queued)
+            activeHyRequest.get()?.takeIf { !it.isFinal }?.let { active ->
+                // A final only preempts once it is ready to translate. Prefix extensions do
+                // not cancel in-flight work, so useful provisional output is not starved.
+                finalTranslator?.cancel(active.requestId)
+                trace("hy-provisional-preempted", active.key, active.requestId,
+                    "forFinalRequest=${queued.requestId}")
+            }
+            lost
+        }
+        dropped?.let {
             CaptionState.skip(it.key, "Translation skipped: queue full")
             CaptionState.metrics(generation) { m -> m.copy(skippedTranslations = m.skippedTranslations + 1) }
             rejectRequest(it, "final translation queue full")
+        }
+    }
+
+    private fun cancelHyIfIncompatible(row: Caption) {
+        synchronized(hyScheduleLock) {
+            val active = activeHyRequest.get()?.takeIf { !it.isFinal } ?: return
+            if (!CaptionState.canTranslatePortion(active.key, active.portionIdentity)) {
+                finalTranslator?.cancel(active.requestId)
+                trace("hy-provisional-invalidated", active.key, active.requestId,
+                    "sourceRevision=${row.key.revision}")
+            }
         }
     }
     private fun createTranslator(): LocalTranslator {
@@ -388,22 +511,39 @@ class CaptionSession(
         try {
             performanceHint = WorkerPerformanceHint(ctx, 750)
             val engine = startupBarrier.initialize(WORKER_HY_TRANSLATION) {
-                createTranslator().also { it.warmUp() }
+                createTranslator().also {
+                    translator = it
+                    finalTranslator = it
+                    it.warmUp()
+                }
             }
             translator = engine
             finalTranslator = engine
             CaptionState.metrics(generation) { it.copy(translationBackend = engine.backend) }
             startupReported = true
             while (lifecycle.shouldRunHyTranslation(finals.size() > 0 || provisional.size() > 0 || qualityProvisional.size() > 0)) {
-                // Endpoints have strict priority. Each live queue has capacity one and
-                // replaces its obsolete prefix, so partial translation can never backlog.
-                val request = finals.poll() ?: if (opusBenchmarkEnabled) qualityProvisional.poll() else provisional.poll()
+                // Pick and publish the active request under the same lock used by final
+                // admission. A final can therefore either win the poll or preempt the active
+                // provisional; there is no race window in which it misses both.
+                val request = synchronized(hyScheduleLock) {
+                    (finals.poll() ?: if (opusBenchmarkEnabled) qualityProvisional.poll() else provisional.poll())
+                        .also { activeHyRequest.set(it) }
+                }
                 if (request == null) { Thread.sleep(20); continue }
                 depths()
-                if (!CaptionState.current(request.key)) { rejectRequest(request, "caption superseded before Hy translation"); continue }
+                val requestCurrent = when {
+                    request.benchmarkOnly || request.correctionSource != null -> CaptionState.current(request.key)
+                    else -> CaptionState.canTranslatePortion(request.key, request.portionIdentity, request.isFinal)
+                }
+                if (!requestCurrent) {
+                    rejectRequest(request, "caption portion incompatible before Hy translation")
+                    clearActiveHyRequest(request)
+                    continue
+                }
                 if (request.endpointAt != null && now() - request.endpointAt > 15_000) {
                     if (!request.benchmarkOnly) CaptionState.skip(request.key, "Translation skipped: stale backlog")
                     rejectRequest(request, "Hy request exceeded 15 second queue limit")
+                    clearActiveHyRequest(request)
                     continue
                 }
                 val queueWaitMs = ((nowNs() - request.queuedAtNs) / 1_000_000L).coerceAtLeast(0)
@@ -413,7 +553,7 @@ class CaptionSession(
                 val isFinal = request.isFinal
                 if (isFinal) activeFinalEndpoint = request.endpointAt
                 try {
-                    val result = engine.translate(request.text)
+                    val result = engine.translate(request.text, request.requestId)
                     if (lifecycle.isCancelled()) break
                     val computedAtNs = nowNs()
                     val elapsed = (computedAtNs - startedNs) / 1_000_000L
@@ -421,18 +561,20 @@ class CaptionSession(
                     val timings = engine.timings
                     val outputKey = if (request.correctionSource != null) request.key.copy(revision = request.key.revision + 1) else request.key
                     val isCaptionResult = !request.benchmarkOnly
-                    if (isCaptionResult) CaptionState.resultComputed(generation, outputKey, computedAtNs, request.requestId)
+                    if (isCaptionResult) CaptionState.resultComputed(generation, outputKey, computedAtNs,
+                        request.requestId, request.portionIdentity)
                     val displayStartedNs = nowNs()
                     val accepted = if (request.benchmarkOnly) {
                         CaptionState.comparison(generation, request.key, request.text,
                             ComparisonEngine.HY_MT2, result, elapsed)
                         false
                     } else if (request.correctionSource != null) {
-                        CaptionState.revisedTranslated(request.key, request.correctionSource, result) != null
-                    } else CaptionState.translated(request.key, result, if (isFinal) 2 else 0, isFinal)
+                        CaptionState.revisedTranslated(request.key, request.correctionSource, result, request.requestId) != null
+                    } else CaptionState.translatedPortion(request.key, request.portionIdentity, result,
+                        if (isFinal) 2 else 0, isFinal, request.requestId)
                     val displayMs = (nowNs() - displayStartedNs) / 1_000_000L
                     if (isCaptionResult && !accepted)
-                        rejectRequest(request, "caption revision changed before Hy result could publish")
+                        rejectRequest(request, "caption portion incompatible before Hy result could publish", computedResult = true)
                     trace(if (accepted) "hy-displayed-to-state" else "hy-result-computed", outputKey,
                         request.requestId, "computeMs=$elapsed displayMs=$displayMs")
                     CaptionState.metrics(generation) { m -> m.copy(translationMs = elapsed,
@@ -446,13 +588,20 @@ class CaptionSession(
                         audioToFinalMs = if (accepted && isFinal) elapsedSinceNs(request.sourceAudioAtNs) else m.audioToFinalMs,
                         finalLatencyMs = if (accepted && isFinal && request.endpointAt != null) now() - request.endpointAt else m.finalLatencyMs) }
                 } catch (_: InterruptedException) { break }
+                catch (_: CancellationException) {
+                    if (!lifecycle.isCancelled()) trace("hy-request-cancelled", request.key, request.requestId,
+                        "provisional became obsolete or a final arrived")
+                }
                 catch (t: Exception) {
                     if (!request.benchmarkOnly && !lifecycle.isCancelled()) {
                         CaptionState.skip(request.key, "Translation failed: ${t.message}")
                         rejectRequest(request, "Hy translation failed")
                     }
                 }
-                finally { if (isFinal) activeFinalEndpoint = null }
+                finally {
+                    if (isFinal) activeFinalEndpoint = null
+                    clearActiveHyRequest(request)
+                }
                 }
         } catch (t: Throwable) {
             if (!startupReported) { failStartupIfUnreported(WORKER_HY_TRANSLATION, t); startupReported = true }
@@ -490,16 +639,18 @@ class CaptionSession(
                 trace("opus-started", request.key, request.requestId, "queueWaitMs=$queueWaitMs")
                 val startedNs = nowNs()
                 try {
-                    val result = engine.translate(request.text)
+                    val result = engine.translate(request.text, request.requestId)
                     if (lifecycle.isCancelled()) break
                     val computedAtNs = nowNs()
                     val elapsed = (computedAtNs - startedNs) / 1_000_000L
                     performanceHint?.report(elapsed)
                     CaptionState.comparison(generation, request.key, request.text,
                         ComparisonEngine.OPUS, result, elapsed)
-                    CaptionState.resultComputed(generation, request.key, computedAtNs, request.requestId)
+                    CaptionState.resultComputed(generation, request.key, computedAtNs, request.requestId,
+                        request.portionIdentity)
                     val displayStartedNs = nowNs()
-                    val accepted = CaptionState.translated(request.key, result, 0, false)
+                    val accepted = CaptionState.translatedPortion(request.key, request.portionIdentity,
+                        result, 0, false, request.requestId)
                     val displayMs = (nowNs() - displayStartedNs) / 1_000_000L
                     if (!accepted) rejectRequest(request, "caption revision changed before OPUS result could publish")
                     val timings = engine.timings
@@ -536,8 +687,11 @@ class CaptionSession(
     private fun failStartupIfUnreported(worker: String, cause: Throwable) {
         if (worker !in startupBarrier.reportedWorkers()) startupBarrier.failed(worker, cause)
     }
-    private fun rejectRequest(request: TranslationRequest, reason: String) {
-        CaptionState.resultRejected(generation, reason)
+    private fun clearActiveHyRequest(request: TranslationRequest) {
+        synchronized(hyScheduleLock) { activeHyRequest.compareAndSet(request, null) }
+    }
+    private fun rejectRequest(request: TranslationRequest, reason: String, computedResult: Boolean = false) {
+        CaptionState.resultRejected(generation, reason, computedResult)
         trace("result-rejected", request.key, request.requestId, reason)
     }
     private fun trace(event: String, key: SegmentKey? = null, requestId: Long = 0, details: String = "") {

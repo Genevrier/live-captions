@@ -3,10 +3,13 @@ package com.asr.live.i18n
 /** One instance per worker; create/use/close on that worker. */
 interface LocalTranslator : AutoCloseable {
     fun translate(text: String): String
+    /** Request-scoped overload lets cooperative native backends abort only obsolete work. */
+    fun translate(text: String, requestId: Long): String = translate(text)
     val backend: String get() = "CPU"
     val timings: TranslationTimings get() = TranslationTimings()
     fun warmUp() {}
     fun cancel() {}
+    fun cancel(requestId: Long) {}
 }
 
 data class TranslationTimings(

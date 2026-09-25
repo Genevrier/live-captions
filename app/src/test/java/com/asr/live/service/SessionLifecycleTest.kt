@@ -224,4 +224,29 @@ class SessionLifecycleTest {
         assertTrue(objectClosedByOwner.get())
         assertFalse(objectFreedWhileInUse.get())
     }
+
+    @Test fun retiredNativeCorrectionClosesOnlyAfterItsActiveDecodeReturns() {
+        val use = NativeResourceUseGate()
+        val objectClosed = AtomicBoolean(false)
+        assertTrue(use.beginCall())
+
+        val retirement = use.retire()
+        assertTrue(retirement.callInUse)
+        assertFalse(retirement.closeNow)
+        assertFalse(objectClosed.get())
+
+        if (use.finishCall()) objectClosed.set(true)
+        assertTrue(objectClosed.get())
+        assertFalse(use.retire().closeNow)
+    }
+
+    @Test fun retirementBeforeDecodeStartsPreventsNativeAccess() {
+        val use = NativeResourceUseGate()
+        val retirement = use.retire()
+
+        assertTrue(retirement.closeNow)
+        assertFalse(retirement.callInUse)
+        assertFalse(use.beginCall())
+        assertFalse(use.finishCall())
+    }
 }

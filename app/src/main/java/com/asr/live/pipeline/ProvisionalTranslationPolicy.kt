@@ -1,6 +1,6 @@
 package com.asr.live.pipeline
 
-/** Admission control for live translations; the mailbox itself coalesces queued stale work. */
+/** Admission control for cumulative stable prefixes; translation boundaries never reset ASR. */
 object ProvisionalTranslationPolicy {
     const val DEBOUNCE_MS = 650L
     const val MIN_STABLE_CHARACTERS = 4
@@ -14,8 +14,11 @@ object ProvisionalTranslationPolicy {
 
         val shared = previous.zip(candidate).takeWhile { (left, right) -> left == right }.size
         val changedText = candidate.drop(shared).trim()
-        val addedSentenceBoundary = candidate.lastOrNull() in setOf('.', '!', '?', '。', '！', '？') &&
-            previous.lastOrNull() !in setOf('.', '!', '?', '。', '！', '？')
-        return changedText.length >= MIN_MATERIAL_CHANGE || addedSentenceBoundary
+        // Clause punctuation may produce a useful subtitle before the recognizer's existing
+        // endpoint. The translator still receives the complete stable prefix, preserving
+        // preceding context for negation, numbers, and phrase-final words.
+        val boundaries = setOf('.', '!', '?', '。', '！', '？', ',', ';', ':', '，', '；', '：')
+        val addedBoundary = candidate.lastOrNull() in boundaries && previous.lastOrNull() !in boundaries
+        return changedText.length >= MIN_MATERIAL_CHANGE || addedBoundary
     }
 }

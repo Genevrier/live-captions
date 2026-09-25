@@ -17,6 +17,8 @@ class CorrectionTest {
         assertFalse(CorrectionPolicy.accept("Goedemorgen iedereen", "", 100, 0))
         assertFalse(CorrectionPolicy.accept("Goedemorgen iedereen", "Hallo iedereen", 3001, 0))
         assertTrue(CorrectionPolicy.accept("Goedemorgen iedereen", "Goedemorgen allemaal", 800, 0))
+        assertEquals(1_000_000_000L, CorrectionPolicy.remainingNanos(5_000_000_000L, 7_000_000_000L))
+        assertEquals(0L, CorrectionPolicy.remainingNanos(5_000_000_000L, 8_000_000_000L))
     }
     @Test fun correctionPublishesRevisedSourceAndHyTranslationAtomically() {
         val ledger = SegmentLedger(); ledger.start(1)

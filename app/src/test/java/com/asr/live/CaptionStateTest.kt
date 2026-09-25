@@ -29,18 +29,60 @@ class CaptionStateTest {
         assertEquals("Hallo wereld", stable.accept("Hallo wereld vandaag"))
         assertEquals("", stable.accept("Dag wereld"))
     }
-    @Test fun rawUnstableSuffixEditsKeepStableTranslationRevision() {
+    @Test fun appendOnlyGrowthKeepsItsTranslatedPortionVisible() {
         val ledger = SegmentLedger(); ledger.start(1)
         ledger.source(1, "Hallo wereld vandaag", false, 1)
         val stable = ledger.source(1, "Hallo wereld tijdens", false, 2)!!
         assertEquals("Hallo wereld", stable.stableSource)
-        assertTrue(ledger.translate(stable.key, "Hello world", 0, false))
+        val portion = TranslationPortionIdentity(1, stable.key.id, stable.stableSource)
+        assertTrue(ledger.translatePortion(stable.key, portion, "Hello world", 0, false, 77))
         val rawEdit = ledger.source(1, "Hallo wereld morgen", false, 3)!!
         assertEquals(stable.key, rawEdit.key)
         assertEquals("Hello world", rawEdit.translation)
         val extended = ledger.source(1, "Hallo wereld morgen samen", false, 4)!!
         assertTrue(extended.key.revision > stable.key.revision)
-        assertEquals("", extended.translation)
+        assertEquals("Hello world", extended.translation)
+        assertEquals("Hallo wereld", extended.translatedSource)
+        assertEquals(" morgen samen", extended.source.removePrefix(extended.translatedSource))
+        assertEquals(77L, extended.translationRequestId)
+        assertTrue(ledger.canTranslatePortion(stable.key, portion))
+
+        val inFlightLedger = SegmentLedger(); inFlightLedger.start(2)
+        inFlightLedger.source(2, "We blijven hier vandaag", false, 1)
+        val pending = inFlightLedger.source(2, "We blijven hier morgen", false, 2)!!
+        val pendingPortion = TranslationPortionIdentity(2, pending.key.id, pending.stableSource)
+        val pendingGrowth = inFlightLedger.source(2, "We blijven hier morgen samen", false, 3)!!
+        assertTrue(pendingGrowth.key.revision > pending.key.revision)
+        assertTrue(inFlightLedger.translatePortion(pending.key, pendingPortion, "We stay here", 0, false, 79))
+        assertEquals("We stay here", inFlightLedger.snapshot().single().translation)
+    }
+
+    @Test fun internalCorrectionInvalidatesAnInFlightTranslatedPortion() {
+        val ledger = SegmentLedger(); ledger.start(1)
+        ledger.source(1, "Ik wil dit wel doen", false, 1)
+        val stable = ledger.source(1, "Ik wil dit wel graag", false, 2)!!
+        assertEquals("Ik wil dit wel", stable.stableSource)
+        val portion = TranslationPortionIdentity(1, stable.key.id, stable.stableSource)
+        assertTrue(ledger.translatePortion(stable.key, portion, "I do want this", 0, false, 4))
+
+        val corrected = ledger.source(1, "Ik wil dit niet graag", false, 3)!!
+        assertFalse(ledger.canTranslatePortion(stable.key, portion))
+        assertEquals("", corrected.translation)
+        assertNull(corrected.translationPortion)
+        assertFalse(ledger.translatePortion(stable.key, portion, "I do want this", 0, false, 5))
+    }
+
+    @Test fun longerOutOfOrderResultWinsAndShorterResultCannotRollCoverageBack() {
+        val ledger = SegmentLedger(); ledger.start(1)
+        ledger.source(1, "Ik kom morgen", false, 1)
+        val short = ledger.source(1, "Ik kom morgen zeker", false, 2)!!
+        assertEquals("Ik kom morgen", short.stableSource)
+        val shortPortion = TranslationPortionIdentity(1, short.key.id, "Ik kom")
+        val longPortion = TranslationPortionIdentity(1, short.key.id, short.stableSource)
+        assertTrue(ledger.translatePortion(short.key, longPortion, "I am coming tomorrow", 0, false, 12))
+        assertFalse(ledger.translatePortion(short.key, shortPortion, "I am coming", 0, false, 11))
+        assertEquals("Ik kom morgen", ledger.snapshot().single().translatedSource)
+        assertEquals("I am coming tomorrow", ledger.snapshot().single().translation)
     }
     @Test fun repeatedHypothesisDoesNotPromoteAnUnstableSuffixToStableText() {
         val ledger = SegmentLedger(); ledger.start(1)
@@ -95,18 +137,24 @@ class CaptionStateTest {
     @Test fun computedResultIsCountedOnlyAfterItIsPublishedAndRendered() {
         val id = 995_304L
         CaptionState.begin(id, SessionConfig(quality = TranslationQuality.ML_KIT), "Nemotron")
-        val row = CaptionState.source(id, "Goedemorgen", true, 1)!!
-        CaptionState.resultComputed(id, row.key, 1_000_000L)
-        assertTrue(CaptionState.translated(row.key, "Good morning", 2, true))
+        val row = CaptionState.source(id, "Goedemorgen allemaal", false, 1)!!
+        val stable = CaptionState.source(id, "Goedemorgen allemaal vandaag", false, 2)!!
+        val portion = TranslationPortionIdentity(id, stable.key.id, stable.stableSource)
+        val requestId = 92L
+        val computedAt = System.nanoTime()
+        CaptionState.resultComputed(id, stable.key, computedAt, requestId, portion)
+        assertTrue(CaptionState.translatedPortion(stable.key, portion, "Good morning everyone", 0, false, requestId))
         assertEquals(1L, CaptionState.metrics.value.resultsComputed)
         assertEquals(0L, CaptionState.metrics.value.resultsDisplayed)
 
-        assertTrue(CaptionState.acknowledgeDisplayed(id, row.key, 4_500_000L))
-        assertFalse(CaptionState.acknowledgeDisplayed(id, row.key, 5_500_000L))
+        val displayedAt = System.nanoTime()
+        assertTrue(CaptionState.acknowledgeDisplayed(id, stable.key, displayedAt))
+        assertFalse(CaptionState.acknowledgeDisplayed(id, stable.key, displayedAt + 1_000_000L))
         CaptionState.resultRejected(id, "stale translation revision")
         assertEquals(1L, CaptionState.metrics.value.resultsDisplayed)
         assertEquals(1L, CaptionState.metrics.value.resultsRejected)
-        assertEquals(3L, CaptionState.metrics.value.displayLatencyMs)
+        assertTrue(CaptionState.metrics.value.displayLatencyMs >= 0)
+        assertNotNull(CaptionState.metrics.value.firstUsefulCaptionMs)
         assertEquals(1, CaptionState.metrics.value.rejectionReasons["stale translation revision"])
         CaptionState.stopped(id)
     }

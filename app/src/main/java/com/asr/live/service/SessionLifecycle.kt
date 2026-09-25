@@ -6,6 +6,39 @@ import java.util.concurrent.atomic.AtomicBoolean
 
 internal data class WorkerStartupFailure(val worker: String, val cause: Throwable)
 
+internal data class NativeResourceRetirement(val closeNow: Boolean, val callInUse: Boolean)
+
+/** Serializes native-object retirement against one active native call. */
+internal class NativeResourceUseGate {
+    private var callStarted = false
+    private var callFinished = false
+    private var retirementRequested = false
+    private var closed = false
+
+    @Synchronized fun beginCall(): Boolean {
+        if (retirementRequested) return false
+        callStarted = true
+        return true
+    }
+
+    @Synchronized fun finishCall(): Boolean {
+        callFinished = true
+        if (retirementRequested && !closed) {
+            closed = true
+            return true
+        }
+        return false
+    }
+
+    @Synchronized fun retire(): NativeResourceRetirement {
+        retirementRequested = true
+        val inUse = callStarted && !callFinished
+        val closeNow = !inUse && !closed
+        if (closeNow) closed = true
+        return NativeResourceRetirement(closeNow, inUse)
+    }
+}
+
 /** Each configured worker reports exactly one startup outcome. */
 internal class WorkerStartupBarrier(private val workers: Map<String, Boolean>) {
     private val remaining = CountDownLatch(workers.size)

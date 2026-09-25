@@ -18,6 +18,7 @@ public:
     virtual std::string backend() const { return "CPU"; }
     virtual TranslationStats stats() const { return {}; }
     void cancel() { cancelled.store(true); }
+    void resetCancellation() { cancelled.store(false); }
 protected:
     std::atomic<bool> cancelled{false};
     void checkCancelled() const;

@@ -323,7 +323,7 @@ class CaptionViewModel(app: Application) : AndroidViewModel(app) {
     }
     fun clear() = CaptionState.clear()
     fun acknowledgeDisplayed(key: SegmentKey) {
-        CaptionState.acknowledgeDisplayed(key.session, key, android.os.SystemClock.elapsedRealtimeNanos())
+        CaptionState.acknowledgeDisplayed(key.session, key, System.nanoTime())
     }
     fun rateComparison(key: SegmentKey, vote: TranslationVote) { CaptionState.vote(key, vote) }
     fun dismissError() = CaptionState.setError(null)

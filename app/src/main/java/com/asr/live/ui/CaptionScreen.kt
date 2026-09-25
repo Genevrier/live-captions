@@ -90,17 +90,26 @@ fun CaptionScreen(vm: CaptionViewModel, hasAudioPermission: Boolean, onRequestPe
             LazyColumn(Modifier.weight(1f).fillMaxWidth(), state = list, verticalArrangement = Arrangement.spacedBy(12.dp), contentPadding = PaddingValues(bottom = 12.dp)) {
                 if (lines.isEmpty()) item { Text(if (stopped) "Download models, then tap Listen." else "${lifecycle.name.lowercase()}…", Modifier.padding(vertical = 24.dp)) }
                 items(lines, key = { it.key.id }) { caption ->
-                    if (caption.translation.isNotBlank()) LaunchedEffect(caption.key, caption.translation) {
+                    if (caption.translation.isNotBlank()) LaunchedEffect(caption.translationPortion,
+                        caption.translationRequestId, caption.translation) {
                         vm.acknowledgeDisplayed(caption.key)
                     }
                     Card(colors = CardDefaults.cardColors(containerColor = if (caption.stage == CaptionStage.PROVISIONAL)
                         MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceVariant)) {
                         Column(Modifier.fillMaxWidth().padding(14.dp)) {
                             Text(caption.translation.ifBlank { "…" }, style = MaterialTheme.typography.headlineSmall)
+                            val suffixColor = MaterialTheme.colorScheme.onSurfaceVariant
                             Text(buildAnnotatedString {
-                                if (caption.source.startsWith(caption.stableSource)) {
-                                    withStyle(SpanStyle(fontWeight = FontWeight.SemiBold)) { append(caption.stableSource) }
-                                    append(caption.source.removePrefix(caption.stableSource))
+                                val covered = caption.translatedSource.takeIf {
+                                    it.isNotBlank() && caption.source.startsWith(it)
+                                } ?: caption.stableSource.takeIf {
+                                    it.isNotBlank() && caption.source.startsWith(it)
+                                }
+                                if (covered != null) {
+                                    withStyle(SpanStyle(fontWeight = FontWeight.SemiBold)) { append(covered) }
+                                    withStyle(SpanStyle(color = suffixColor)) {
+                                        append(caption.source.removePrefix(covered))
+                                    }
                                 } else append(caption.source)
                             }, style = MaterialTheme.typography.bodyLarge)
                             Text(caption.detail, style = MaterialTheme.typography.labelSmall)
@@ -277,7 +286,8 @@ private fun PerformancePanel(m: Performance) {
         "${"%.1f".format(m.opusTokensPerSecond)} tok/s\n" +
         "Correction ${m.correctionMs} ms / RTF ${"%.2f".format(m.correctionRtf)} · ${m.correctionThreads} threads · skipped ${m.skippedCorrections}\n" +
         "Correction wait ${m.correctionWaitMs} ms · caption results computed/displayed/rejected " +
-        "${m.resultsComputed}/${m.resultsDisplayed}/${m.resultsRejected} · display ${m.displayLatencyMs} ms\n" +
+        "${m.resultsComputed}/${m.resultsDisplayed}/${m.resultsRejected} · display ${m.displayLatencyMs} ms · " +
+        "tap → first useful subtitle ${m.firstUsefulCaptionMs?.let { "$it ms" } ?: "—"}\n" +
         (if (m.rejectionReasons.isEmpty()) "" else "Rejected: ${m.rejectionReasons.entries.joinToString { "${it.key}=${it.value}" }}\n") +
         "Segment audio → provisional ${m.audioToProvisionalMs?.let { "$it ms" } ?: "—"} · " +
         "stable prefix → provisional ${m.stableToProvisionalMs?.let { "$it ms" } ?: "—"}\n" +

@@ -21,6 +21,7 @@ data class Performance(
     val opusFirstTokenMs: Long = 0, val opusTokensPerSecond: Double = 0.0,
     val resultsComputed: Long = 0, val resultsDisplayed: Long = 0, val resultsRejected: Long = 0,
     val rejectionReasons: Map<String, Int> = emptyMap(), val displayLatencyMs: Long = 0,
+    val firstUsefulCaptionMs: Long? = null,
     val audioToProvisionalMs: Long? = null, val stableToProvisionalMs: Long? = null,
     val audioToFinalMs: Long? = null, val finalLatencyMs: Long? = null,
     val audioDepth: Int = 0, val provisionalDepth: Int = 0, val finalDepth: Int = 0,
@@ -54,11 +55,14 @@ object CaptionState {
     private val _comparisons = MutableStateFlow<List<TranslationComparison>>(emptyList())
     val comparisons = _comparisons.asStateFlow()
     @Volatile private var generation = -1L
-    private val displayedKeys = mutableSetOf<SegmentKey>()
-    private val computedAtNs = mutableMapOf<SegmentKey, Long>()
-    private val computedRequestIds = mutableMapOf<SegmentKey, Long>()
+    private val displayedResults = linkedSetOf<TranslationResultIdentity>()
+    private val computedAtNs = mutableMapOf<TranslationResultIdentity, Long>()
+    private val sessionStartedAtNs = mutableMapOf<Long, Long>()
     @Synchronized fun begin(id: Long, config: SessionConfig, modelName: String) {
-        generation = id; ledger.start(id); comparisonLedger.clear(); displayedKeys.clear(); computedAtNs.clear(); computedRequestIds.clear(); publish(); publishComparisons()
+        generation = id; ledger.start(id); comparisonLedger.clear(); displayedResults.clear(); computedAtNs.clear()
+        sessionStartedAtNs[id] = System.nanoTime()
+        sessionStartedAtNs.keys.removeAll { it != id }
+        publish(); publishComparisons()
         val translationLabel = if (config.opusBenchmarkEnabled)
             "OPUS provisional A/B + ${config.quality.label}" else config.quality.label
         _metrics.value = Performance(asr = modelName, translator = translationLabel, profile = config.profile.label, threads = config.threads,
@@ -73,6 +77,11 @@ object CaptionState {
         ledger.source(id, text, endpoint, nowMs)?.also { publish() }
     @Synchronized fun translated(key: SegmentKey, text: String, rank: Int, final: Boolean): Boolean =
         ledger.translate(key, text, rank, final).also { if (it) publish() }
+    @Synchronized fun canTranslatePortion(key: SegmentKey, portion: TranslationPortionIdentity, final: Boolean = false): Boolean =
+        ledger.canTranslatePortion(key, portion, final)
+    @Synchronized fun translatedPortion(key: SegmentKey, portion: TranslationPortionIdentity, text: String,
+                                        rank: Int, final: Boolean, requestId: Long): Boolean =
+        ledger.translatePortion(key, portion, text, rank, final, requestId).also { if (it) publish() }
     @Synchronized fun comparison(generation: Long, key: SegmentKey, source: String,
                                 engine: ComparisonEngine, text: String, elapsedMs: Long) {
         if (generation != this.generation || key.session != generation) return
@@ -81,8 +90,8 @@ object CaptionState {
     }
     @Synchronized fun vote(key: SegmentKey, choice: TranslationVote): Boolean =
         comparisonLedger.vote(key, choice).also { if (it) publishComparisons() }
-    @Synchronized fun revisedTranslated(key: SegmentKey, source: String, translation: String): Caption? =
-        ledger.reviseTranslated(key, source, translation)?.also { publish() }
+    @Synchronized fun revisedTranslated(key: SegmentKey, source: String, translation: String, requestId: Long = 0): Caption? =
+        ledger.reviseTranslated(key, source, translation, requestId)?.also { publish() }
     @Synchronized fun skip(key: SegmentKey, reason: String) { ledger.skip(key, reason); publish() }
     fun current(key: SegmentKey) = ledger.current(key)
     @Synchronized fun discontinuity(id: Long) { ledger.discontinuity(id); publish() }
@@ -102,18 +111,22 @@ object CaptionState {
     @Synchronized fun metrics(id: Long, update: (Performance) -> Performance) {
         if (id == generation) _metrics.value = update(_metrics.value)
     }
-    @Synchronized fun resultComputed(id: Long, key: SegmentKey, atNs: Long, requestId: Long = 0) {
+    @Synchronized fun resultComputed(id: Long, key: SegmentKey, atNs: Long, requestId: Long = 0,
+                                     portion: TranslationPortionIdentity? = null) {
         if (id != generation || key.session != id) return
-        computedAtNs[key] = atNs
-        computedRequestIds[key] = requestId
+        val capturedPortion = portion ?: ledger.caption(key)?.let { row ->
+            TranslationPortionIdentity(id, key.id, row.stableSource.ifBlank { row.source })
+        } ?: return
+        if (capturedPortion.session != id || capturedPortion.segmentId != key.id) return
+        val result = TranslationResultIdentity(capturedPortion, requestId)
+        computedAtNs[result] = atNs
         while (computedAtNs.size > 300) {
             val oldest = computedAtNs.keys.first()
             computedAtNs.remove(oldest)
-            computedRequestIds.remove(oldest)
         }
         _metrics.value = _metrics.value.copy(resultsComputed = _metrics.value.resultsComputed + 1)
     }
-    @Synchronized fun resultRejected(id: Long, reason: String) {
+    @Synchronized fun resultRejected(id: Long, reason: String, computedResult: Boolean = true) {
         if (id != generation) return
         val reasons = _metrics.value.rejectionReasons.toMutableMap()
         reasons[reason] = (reasons[reason] ?: 0) + 1
@@ -121,20 +134,26 @@ object CaptionState {
             val oldest = reasons.minByOrNull { it.value }?.key ?: break
             reasons.remove(oldest)
         }
-        _metrics.value = _metrics.value.copy(resultsRejected = _metrics.value.resultsRejected + 1,
+        _metrics.value = _metrics.value.copy(resultsRejected = _metrics.value.resultsRejected + if (computedResult) 1 else 0,
             rejectionReasons = reasons)
     }
     /** Called by the Compose screen after a translated row has entered a rendered frame. */
     @Synchronized fun acknowledgeDisplayed(id: Long, key: SegmentKey, atNs: Long): Boolean {
-        if (id != generation || key.session != id || key in displayedKeys) return false
-        val visible = ledger.snapshot().any { it.key == key && it.translation.isNotBlank() }
-        if (!visible) return false
-        displayedKeys += key
-        val latency = computedAtNs.remove(key)?.let { ((atNs - it) / 1_000_000L).coerceAtLeast(0) } ?: 0L
-        val requestId = computedRequestIds.remove(key) ?: 0L
+        if (id != generation || key.session != id) return false
+        val row = ledger.caption(key) ?: return false
+        if (row.translation.isBlank()) return false
+        val portion = row.translationPortion ?: return false
+        val result = TranslationResultIdentity(portion, row.translationRequestId)
+        if (!displayedResults.add(result)) return false
+        while (displayedResults.size > 5_000) displayedResults.remove(displayedResults.first())
+        val latency = computedAtNs.remove(result)?.let { ((atNs - it) / 1_000_000L).coerceAtLeast(0) } ?: 0L
+        val requestId = result.requestId
+        val firstUsefulMs = _metrics.value.firstUsefulCaptionMs ?: sessionStartedAtNs[id]?.let {
+            ((atNs - it) / 1_000_000L).coerceAtLeast(0)
+        }
         runCatching { Log.d("CaptionPipeline", "session=$id segment=${key.id} revision=${key.revision} request=$requestId atNs=$atNs event=displayed") }
         _metrics.value = _metrics.value.copy(resultsDisplayed = _metrics.value.resultsDisplayed + 1,
-            displayLatencyMs = latency)
+            displayLatencyMs = latency, firstUsefulCaptionMs = firstUsefulMs)
         return true
     }
     @Synchronized fun error(id: Long, text: String) { if (id == generation) _error.value = text }

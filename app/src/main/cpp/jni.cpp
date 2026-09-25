@@ -23,6 +23,7 @@ extern "C" JNIEXPORT jbyteArray JNICALL Java_com_asr_live_i18n_NativeTranslator_
     } catch (const std::exception & e) { fail(env, e); return nullptr; }
 }
 extern "C" JNIEXPORT void JNICALL Java_com_asr_live_i18n_NativeTranslator_abort(JNIEnv *, jobject, jlong handle) { reinterpret_cast<TranslationEngine *>(handle)->cancel(); }
+extern "C" JNIEXPORT void JNICALL Java_com_asr_live_i18n_NativeTranslator_resetCancellation(JNIEnv *, jobject, jlong handle) { reinterpret_cast<TranslationEngine *>(handle)->resetCancellation(); }
 extern "C" JNIEXPORT void JNICALL Java_com_asr_live_i18n_NativeTranslator_free(JNIEnv *, jobject, jlong handle) { delete reinterpret_cast<TranslationEngine *>(handle); }
 extern "C" JNIEXPORT jstring JNICALL Java_com_asr_live_i18n_NativeTranslator_backend(JNIEnv * env, jobject, jlong handle) {
     return env->NewStringUTF(reinterpret_cast<TranslationEngine *>(handle)->backend().c_str());
