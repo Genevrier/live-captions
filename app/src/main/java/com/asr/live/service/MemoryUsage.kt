@@ -15,18 +15,27 @@ data class MemorySnapshot(
     val javaHeapKb: Long,
     val availableKb: Long,
     val thermalStatus: String,
+    val thermalMaxC: Double?,
+    val readableThermalSensors: Int,
+    val qnnPssKb: Long,
+    val qnnProcessPresent: Boolean,
 )
 
 object MemoryUsage {
     fun sample(context: Context): MemorySnapshot {
         val manager = context.getSystemService(ActivityManager::class.java)
         val own = Debug.MemoryInfo().also { Debug.getMemoryInfo(it) }.totalPss.toLong()
-        val additional = runCatching {
-            val pids = manager.runningAppProcesses.orEmpty().filter {
+        val children = manager.runningAppProcesses.orEmpty().filter {
                 it.uid == Process.myUid() && it.pid != Process.myPid()
-            }.map { it.pid }.toIntArray()
-            if (pids.isEmpty()) 0L else manager.getProcessMemoryInfo(pids).sumOf { it.totalPss.toLong() }
-        }.getOrDefault(0L)
+            }
+        val childPss = runCatching {
+            if (children.isEmpty()) emptyList()
+            else manager.getProcessMemoryInfo(children.map { it.pid }.toIntArray()).map { it.totalPss.toLong() }
+        }.getOrDefault(emptyList())
+        val processPssKb = children.zip(childPss).groupBy({ it.first.processName }, { it.second })
+            .mapValues { (_, values) -> values.sum() }
+        val additional = childPss.sum()
+        val qnnPss = processPssKb.filterKeys { it.endsWith(":qnn") }.values.sum()
         val rss = runCatching {
             val pages = java.io.File("/proc/self/statm").readText().trim().split(Regex("\\s+"))[1].toLong()
             pages * Os.sysconf(OsConstants._SC_PAGESIZE) / 1024
@@ -46,8 +55,20 @@ object MemoryUsage {
                 else -> "Unknown"
             }
         } else "Unavailable"
+        val temperatures = runCatching {
+            java.io.File("/sys/class/thermal").listFiles().orEmpty()
+                .filter { it.name.startsWith("thermal_zone") }
+                .take(64)
+                .mapNotNull { zone ->
+                    val raw = zone.resolve("temp").readText().trim().toDoubleOrNull() ?: return@mapNotNull null
+                    val celsius = if (kotlin.math.abs(raw) > 1000.0) raw / 1000.0 else raw
+                    celsius.takeIf { it in -30.0..150.0 }
+                }
+        }.getOrDefault(emptyList())
         return MemorySnapshot(own + additional, rss, Debug.getNativeHeapAllocatedSize() / 1024,
-            (runtime.totalMemory() - runtime.freeMemory()) / 1024, system.availMem / 1024, thermal)
+            (runtime.totalMemory() - runtime.freeMemory()) / 1024, system.availMem / 1024, thermal,
+            temperatures.maxOrNull(), temperatures.size,
+            qnnPss, processPssKb.keys.any { it.endsWith(":qnn") })
     }
 
     /** Refuse an optional large model if Android cannot retain a 2 GiB system reserve. */

@@ -8,6 +8,9 @@ interface AsrEngine {
     /** Cumulative timings for actual recognizer.decode() calls; callback-only updates add none. */
     val decodeStats: AsrDecodeStats get() = AsrDecodeStats()
 
+    /** Time in the streaming input/result path; decode remains separately measured. */
+    val pipelineStats: AsrPipelineStats get() = AsrPipelineStats()
+
     /** Feed a chunk of audio; may emit partial/final results via the callbacks. */
     fun accept(samples: FloatArray)
 
@@ -16,3 +19,9 @@ interface AsrEngine {
 
     fun release()
 }
+
+data class AsrPipelineStats(
+    val audioFeedNanos: Long = 0,
+    val resultNanos: Long = 0,
+    val endpointCheckNanos: Long = 0,
+)

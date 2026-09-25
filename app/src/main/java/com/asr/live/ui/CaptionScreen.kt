@@ -8,6 +8,8 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.unit.dp
@@ -17,6 +19,8 @@ import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.text.font.FontWeight
 import com.asr.live.model.*
 import com.asr.live.pipeline.*
+import com.asr.live.i18n.TranslationBenchmarkStage
+import com.asr.live.asr.AsrWavBenchmarkStage
 import com.asr.live.service.*
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -36,7 +40,16 @@ fun CaptionScreen(vm: CaptionViewModel, hasAudioPermission: Boolean, onRequestPe
     val benchmark by vm.benchmark.collectAsState()
     val comparisons by vm.comparisons.collectAsState()
     val benchmarkBusy by vm.benchmarkBusy.collectAsState()
+    val asrBenchmark by vm.asrBenchmark.collectAsState()
+    val asrBenchmarkError by vm.asrBenchmarkError.collectAsState()
     var benchmarkText by remember { mutableStateOf("Goedemorgen, dit is een test van de live vertaling.") }
+    var benchmarkReference by remember { mutableStateOf("") }
+    var asrReference by remember { mutableStateOf("") }
+    var asrStage by remember { mutableStateOf(AsrWavBenchmarkStage.CPU_VS_QNN) }
+    var asrStageMenu by remember { mutableStateOf(false) }
+    val wavPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) vm.benchmarkAsrWav(uri, asrStage, asrReference)
+    }
     var settings by remember { mutableStateOf(false) }
     var profiles by remember { mutableStateOf(false) }
     var diagnostics by remember { mutableStateOf(false) }
@@ -154,7 +167,7 @@ fun CaptionScreen(vm: CaptionViewModel, hasAudioPermission: Boolean, onRequestPe
                     Text((if (mode == config.performanceMode) "✓ " else "") + mode.label)
                 }
             }
-            Text("Max Quality uses one Hy-MT2 7B Q4_K_M engine for both stable live prefixes and endpoints. It does not load OPUS. For Dutch → English, Ultra Low Latency optionally runs OPUS A/B: identical stable text from one live ASR stream goes to OPUS and Hy Q4, and OPUS supplies the provisional caption. Profiles without a pinned OPUS bundle stay Hy-only. QNN and OpenCL are experimental until tested on this phone.", style = MaterialTheme.typography.bodySmall)
+            Text("Fast uses Hy-MT2 1.8B Q4_K_M; for Dutch → English it also runs the disclosed OPUS/Hy A/B and OPUS supplies provisional captions. Balanced uses Hy-MT2 1.8B Q8_0. Max uses one Hy-MT2 7B Q4_K_M engine; Parakeet correction is separate and optional. No profile silently benchmarks the 7B model. QNN and OpenCL remain experimental until measured on this phone.", style = MaterialTheme.typography.bodySmall)
             if (config.opusBenchmarkEnabled) {
                 Text("Live OPUS vs ${config.quality.label} A/B from the same microphone audio", style = MaterialTheme.typography.titleMedium)
                 Text("Both translators receive the identical stable Nemotron transcript prefix. Latency is measured per output; compare translation quality side by side and record a preference. Votes are human judgments, not reference-scored accuracy.", style = MaterialTheme.typography.bodySmall)
@@ -189,7 +202,7 @@ fun CaptionScreen(vm: CaptionViewModel, hasAudioPermission: Boolean, onRequestPe
             }
             Text("CPU fallback is always downloaded. QNN has not been tested on this Honor phone.", style = MaterialTheme.typography.bodySmall)
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Switch(checked = config.gpuTranslation, onCheckedChange = { vm.update(config.copy(gpuTranslation = it)) },
+                Switch(checked = config.gpuTranslation, onCheckedChange = { vm.update(config.copy(gpuTranslation = it), userChangedOpenCl = true) },
                     enabled = stopped && !busy && com.asr.live.BuildConfig.OPENCL_ENABLED)
                 Text("Prefer Adreno 830 OpenCL translation")
             }
@@ -236,12 +249,46 @@ fun CaptionScreen(vm: CaptionViewModel, hasAudioPermission: Boolean, onRequestPe
             }
             Text(if (config.profile.correctionSupported) "Optional second hypothesis; skipped under load. CPU performance is device dependent." else "Parakeet correction is unavailable for Mandarin.", style = MaterialTheme.typography.bodySmall)
             HorizontalDivider(Modifier.padding(vertical = 12.dp))
-            Text("On-device translation autotune / A-B", style = MaterialTheme.typography.titleMedium)
-            Text("Measures installed Hy-MT2 1.8B Q4_K_M, then 7B Q4_K_M, then the 7B Q6 CPU reference and your selected model. It compares CPU and Adreno OpenCL on identical text at 2-thread 128/64 and 4-thread 256/128 settings, then checks a 4-thread 512/128 variant. It records actual layer placement, device free-memory delta and fallback, token counts, prefill/decode/synchronization, first visible word and EOS completion. After warm-up it repeats your sentences five times. Exact text matching is a consistency check, not a translation-quality or sustained-load score. The benchmark never changes your selected model.", style = MaterialTheme.typography.bodySmall)
+            Text("On-device WAV benchmark · injection", style = MaterialTheme.typography.titleMedium)
+            Text("Choose one 16 kHz mono PCM16 WAV. A runs the identical file through Nemotron CPU and QNN; D runs it with Parakeet off and on, with Parakeet decoding on its own worker. This is an isolated injected stream, not microphone or translated-subtitle latency. The WAV SHA-256, human-reference WER, number-token errors, actual decode-call distribution, schedule lag, PCM signal statistics, process-group PSS and thermal status are logged and shown below.", style = MaterialTheme.typography.bodySmall)
+            Box {
+                TextButton(onClick = { asrStageMenu = true }, enabled = stopped && !busy && !benchmarkBusy) {
+                    Text(if (asrStage == AsrWavBenchmarkStage.CPU_VS_QNN) "A · Nemotron CPU vs QNN" else "D · Parakeet off vs on")
+                }
+                DropdownMenu(expanded = asrStageMenu, onDismissRequest = { asrStageMenu = false }) {
+                    DropdownMenuItem(text = { Text("A · Nemotron CPU vs QNN") }, onClick = {
+                        asrStage = AsrWavBenchmarkStage.CPU_VS_QNN; asrStageMenu = false
+                    })
+                    DropdownMenuItem(text = { Text("D · Parakeet off vs on") }, onClick = {
+                        asrStage = AsrWavBenchmarkStage.PARAKEET_OFF_VS_ON; asrStageMenu = false
+                    })
+                }
+            }
+            OutlinedTextField(asrReference, { asrReference = it.take(2000) },
+                label = { Text("Human verbatim Dutch reference") }, minLines = 2,
+                enabled = stopped && !busy && !benchmarkBusy)
+            TextButton(onClick = { wavPicker.launch(arrayOf("audio/*")) },
+                enabled = stopped && !busy && !benchmarkBusy) { Text(if (benchmarkBusy) "Running isolated WAV benchmark…" else "Choose WAV and run stage") }
+            asrBenchmarkError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+            asrBenchmark.forEach { result -> Text(result.reportLine(), style = MaterialTheme.typography.bodySmall) }
+            if (!com.asr.live.BuildConfig.OPENCL_ENABLED)
+                Text("This build omits OpenCL, so stage B cannot compare CPU with Adreno OpenCL.", style = MaterialTheme.typography.bodySmall)
+            HorizontalDivider(Modifier.padding(vertical = 12.dp))
+            Text("On-device translation benchmark · staged", style = MaterialTheme.typography.titleMedium)
+            Text("B compares only Hy-MT2 1.8B Q4 on CPU and OpenCL with identical text and the same selected threads/batch. C compares 1.8B Q4 and 7B Q4 on the currently selected backend; review B first and select the backend in settings. Each model runs alone. Results include cold first request, warm p50/p95, prefill/decode, first visible and complete translation, token counts, actual layer placement, fallback and total app-process-group PSS (including :qnn when present). Nothing is auto-selected or saved from a benchmark. Text-output quality needs human review; this panel does not claim ASR accuracy or sustained pipeline results.", style = MaterialTheme.typography.bodySmall)
             OutlinedTextField(benchmarkText, { benchmarkText = it.take(1000) }, label = { Text("Source sentences, one per line") },
-                placeholder = { Text("Run several representative sentences for safer tuning") }, minLines = 2, enabled = stopped && !benchmarkBusy)
-            TextButton(onClick = { vm.benchmarkTranslation(benchmarkText) }, enabled = stopped && !busy && !benchmarkBusy) { Text(if (benchmarkBusy) "Warming / benchmarking…" else "Run on-device autotune") }
-            benchmark.forEach { result -> Text("${result.model} · ${if (result.requestedOpenCl) "OpenCL requested" else "CPU requested"}: ${result.error ?: "${result.backend} · load ${result.loadMs} ms · avg ${result.elapsedMs} / p95 ${result.p95Ms} ms · prefill ${result.prefillMs} / decode ${result.decodeMs} ms · first visible ${result.firstVisibleMs} / complete ${result.completeMs} ms · tokens in/out ${result.inputTokens}/${result.outputTokens} · KV prefix ${result.cacheReusedTokens} · prefill decode/sync ${result.prefillDecodeUs}/${result.prefillSyncUs} µs · generation decode/sync/sample ${result.decodeComputeUs}/${result.decodeSyncUs}/${result.samplingUs} µs · placement ${result.offloadedLayers}/${result.totalLayers} layers (${result.deviceBytesAllocated / (1024 * 1024)} MiB free-memory delta), fallbacks ${result.fallbackCount} · ${result.threads} threads, batch ${result.batch}/${result.ubatch} · ${when (result.qualityMatched) { true -> "matches Q6 CPU"; false -> "differs from Q6 CPU"; null -> "Q6 CPU comparison unavailable" }} · PSS ${result.rssMiB} MiB · available ${result.availableMiB} MiB\n${result.output}"}", style = MaterialTheme.typography.bodySmall) }
+                placeholder = { Text("Use identical Dutch phrases with numbers, negations, and spontaneous wording") }, minLines = 2, enabled = stopped && !benchmarkBusy)
+            OutlinedTextField(benchmarkReference, { benchmarkReference = it.take(1000) },
+                label = { Text("Human English reference, one matching line per source") }, minLines = 2,
+                enabled = stopped && !benchmarkBusy)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                TextButton(onClick = { vm.benchmarkTranslation(benchmarkText, benchmarkReference, TranslationBenchmarkStage.BACKEND_18B_Q4) },
+                    enabled = stopped && !busy && !benchmarkBusy) { Text("B · CPU vs OpenCL · 1.8B Q4") }
+                TextButton(onClick = { vm.benchmarkTranslation(benchmarkText, benchmarkReference, TranslationBenchmarkStage.MODEL_SIZE) },
+                    enabled = stopped && !busy && !benchmarkBusy) { Text("C · 1.8B vs 7B") }
+            }
+            if (benchmarkBusy) Text("Benchmark running…")
+            benchmark.forEach { result -> Text("${result.model} · ${if (result.requestedOpenCl) "OpenCL requested" else "CPU requested"}: ${result.error ?: "${result.backend} · load ${result.loadMs} ms · cold first request ${result.coldRequestMs} ms · warm avg ${result.elapsedMs} / p50 ${result.p50Ms} / p95 ${result.p95Ms} ms · prefill ${result.prefillMs} / decode ${result.decodeMs} ms · first visible ${result.firstVisibleMs} / complete ${result.completeMs} ms · human-reference WER ${result.humanReferenceWer?.let { "%.3f".format(it) } ?: "not supplied"} · tokens in/out ${result.inputTokens}/${result.outputTokens} · KV prefix ${result.cacheReusedTokens} · prefill decode/sync ${result.prefillDecodeUs}/${result.prefillSyncUs} µs · generation decode/sync/sample ${result.decodeComputeUs}/${result.decodeSyncUs}/${result.samplingUs} µs · placement ${result.offloadedLayers}/${result.totalLayers} layers (${result.deviceBytesAllocated / (1024 * 1024)} MiB net device free-memory delta), fallbacks ${result.fallbackCount} · ${result.threads} threads, batch ${result.batch}/${result.ubatch} · app process-group PSS ${result.appProcessGroupPssMiB} MiB · available ${result.availableMiB} MiB · thermal ${result.thermalStatus}/${result.thermalMaxC?.let { "%.1f°C".format(it) } ?: "unavailable"}\n${result.output}"}", style = MaterialTheme.typography.bodySmall) }
             Text("Audio stays in memory and is never uploaded or saved.", style = MaterialTheme.typography.bodySmall)
         }
     })
@@ -300,10 +347,15 @@ private fun PerformancePanel(m: Performance) {
         "Segment audio → final ${m.audioToFinalMs?.let { "$it ms" } ?: "—"} · " +
         "ASR endpoint → final ${m.finalLatencyMs?.let { "$it ms" } ?: "—"}\n" +
         "Audio queue ${m.audioDepth} · translation ${m.provisionalDepth}+${m.finalDepth}\n" +
+        "Microphone input ${m.audioSampleRateHz} Hz · ${m.audioSamplesCaptured} samples · RMS ${"%.4f".format(m.audioRms)} · " +
+        "peak ${"%.4f".format(m.audioPeak)} · clipped samples ${m.audioClippedSamples} · timestamp gaps ${m.audioTimestampGaps}\n" +
+        "Capture monotonic ns ${m.audioFirstMonotonicNs ?: "—"} → ${m.audioLastMonotonicNs ?: "—"}\n" +
         "Caption backlog ${m.captionBacklogMs} ms · capture backlog ${m.backlogMs} ms\nDropped audio ${m.droppedAudioMs} ms · skipped translations ${m.skippedTranslations}\n" +
-        "App RAM ${m.appPssKb / 1024} MiB PSS · process RSS ${m.rssKb / 1024} MiB\n" +
+        "App process-group RAM ${m.appPssKb / 1024} MiB PSS · :qnn ${if (m.qnnProcessPresent) "${m.qnnPssKb / 1024} MiB PSS" else "not running"} · main-process RSS ${m.rssKb / 1024} MiB\n" +
         "Native heap ${m.nativeHeapKb / 1024} MiB · Java heap ${m.javaHeapKb / 1024} MiB\n" +
-        "Loaded model files ≈ ${m.estimatedModelsKb / 1024} MiB · system available ${m.availableKb / 1024} MiB · thermal ${m.thermalStatus}\n" +
+        "Model files on disk ≈ ${m.modelFilesDiskKb / 1024} MiB (not RAM) · system available ${m.availableKb / 1024} MiB · " +
+        "thermal ${m.thermalStatus} · max readable sensor ${m.thermalMaxC?.let { "%.1f°C".format(it) } ?: "unavailable"} " +
+        "(${m.readableThermalSensors} zones)\n" +
         "ADPF work-duration hints ${if (m.adpfActive) "active" else "unavailable"} · sampled every 5 s"
     Text(text, style = MaterialTheme.typography.bodySmall, modifier = Modifier.fillMaxWidth().heightIn(max = 220.dp).verticalScroll(rememberScrollState()).padding(bottom = 8.dp))
 }

@@ -7,44 +7,46 @@ import androidx.lifecycle.viewModelScope
 import com.asr.live.model.*
 import com.asr.live.pipeline.*
 import com.asr.live.service.*
+import com.asr.live.i18n.TranslationBenchmarkPlan
+import com.asr.live.i18n.TranslationBenchmarkStage
+import com.asr.live.asr.AsrWavBenchmark
+import com.asr.live.asr.AsrWavBenchmarkResult
+import com.asr.live.asr.AsrWavBenchmarkStage
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import java.util.concurrent.atomic.AtomicInteger
 import com.asr.live.overlay.OverlayPreferences
 import com.asr.live.overlay.OverlayOptions
 
 data class TranslationBenchmark(
     val model: String, val elapsedMs: Long, val output: String, val error: String? = null,
-    val rssMiB: Long? = null, val availableMiB: Long? = null,
+    val appProcessGroupPssMiB: Long? = null, val availableMiB: Long? = null,
     val backend: String = "CPU", val requestedOpenCl: Boolean = false,
-    val p95Ms: Long = 0, val prefillMs: Long = 0, val decodeMs: Long = 0,
+    val p50Ms: Long = 0, val p95Ms: Long = 0, val prefillMs: Long = 0, val decodeMs: Long = 0,
     val loadMs: Long = 0, val batch: Int = 256, val ubatch: Int = 128,
     val threads: Int = 4, val inputTokens: Long = 0, val outputTokens: Long = 0,
     val cacheReusedTokens: Long = 0, val firstVisibleMs: Long = 0, val completeMs: Long = 0,
+    val coldRequestMs: Long = 0,
     val prefillDecodeUs: Long = 0, val prefillSyncUs: Long = 0, val decodeComputeUs: Long = 0,
     val samplingUs: Long = 0, val decodeSyncUs: Long = 0,
     val offloadedLayers: Long = 0, val totalLayers: Long = 0, val deviceBytesAllocated: Long = 0,
     val fallbackCount: Long = 0,
-    val qualityMatched: Boolean? = null, val quality: TranslationQuality? = null,
+    val quality: TranslationQuality? = null,
+    val humanReferenceWer: Double? = null,
+    val thermalStatus: String = "Unknown",
+    val thermalMaxC: Double? = null,
 )
-
-private data class TranslationBenchmarkConfig(val openCl: Boolean, val threads: Int, val batch: Int, val ubatch: Int)
 
 data class ManagedModel(val id: String, val label: String, val bytes: Long, val installed: Boolean, val selectable: Boolean = false, val stored: Boolean = installed)
 
 class CaptionViewModel(app: Application) : AndroidViewModel(app) {
+    private val translationBenchmarkRuns = AtomicInteger()
     private val prefs = app.getSharedPreferences("profiles_v2", Context.MODE_PRIVATE)
     private val overlayPrefs = OverlayPreferences(app)
     private val deviceMode = PerformanceMode.defaultFor(if (android.os.Build.VERSION.SDK_INT >= 31) android.os.Build.SOC_MODEL else null, android.os.Build.MANUFACTURER, android.os.Build.MODEL)
-    private val qnnPreferred = deviceMode == PerformanceMode.MAX_QUALITY && android.os.Build.VERSION.SDK_INT >= 31 &&
-        BackendPolicy.qnnEligible(android.os.Build.SOC_MODEL, com.asr.live.BuildConfig.QNN_ENABLED)
     private val initialProfile = Profile.fromId(prefs.getString("profile", null))
-    private val deviceKey = listOf(android.os.Build.MANUFACTURER, android.os.Build.MODEL,
-        if (android.os.Build.VERSION.SDK_INT >= 31) android.os.Build.SOC_MODEL else "unknown")
-        .joinToString("-").replace(Regex("[^A-Za-z0-9._-]"), "_")
-    private val deviceTune = prefs.getString("autotune.$deviceKey", null)?.split(":")?.takeIf { it.size in 4..5 }
-    private val preferredQuality = TranslationQuality.entries.firstOrNull { it.name == deviceTune?.get(0) }
-        ?: if (prefs.getBoolean("quality.userOverride", false))
+    private val preferredQuality = if (prefs.getBoolean("quality.userOverride", false))
             TranslationQuality.entries.firstOrNull { it.name == prefs.getString("quality", null) } else null
     private val initialMode = PerformanceMode.entries.firstOrNull { it.name == prefs.getString("performanceMode", null) }
         ?: deviceMode
@@ -61,17 +63,15 @@ class CaptionViewModel(app: Application) : AndroidViewModel(app) {
         correctionThreads = prefs.getInt("correctionThreads", 4).let { if (it in setOf(2, 4, 6, 8)) it else 4 },
         quality = preferredQuality
             ?: when (initialMode) {
-                PerformanceMode.FAST -> TranslationQuality.HY_7B_Q4
+                PerformanceMode.FAST -> TranslationQuality.HY_Q4
                 PerformanceMode.MAX_QUALITY -> TranslationQuality.HY_7B_Q4
                 PerformanceMode.BALANCED -> TranslationQuality.HY_Q8
             },
-        qnn = if (prefs.getBoolean("qnn.userOverride", false)) prefs.getBoolean("qnn", qnnPreferred) else qnnPreferred,
-        gpuTranslation = deviceTune?.get(1)?.let { it == "true" }
-            ?: prefs.getBoolean("gpuTranslation", deviceMode == PerformanceMode.MAX_QUALITY && com.asr.live.BuildConfig.OPENCL_ENABLED),
-        translationThreads = (deviceTune?.getOrNull(4)?.toIntOrNull() ?: prefs.getInt("translationThreads", 4))
-            .let { if (it in setOf(2, 4)) it else 4 },
-        translationBatch = (deviceTune?.get(2)?.toIntOrNull() ?: prefs.getInt("translationBatch", 256)).let { if (it in setOf(128, 256, 512)) it else 256 },
-        translationUbatch = (deviceTune?.get(3)?.toIntOrNull() ?: prefs.getInt("translationUbatch", 128)).let { if (it in setOf(64, 128, 256)) it else 128 },
+        qnn = if (prefs.getBoolean("qnn.userOverride", false)) prefs.getBoolean("qnn", false) else false,
+        gpuTranslation = if (prefs.getBoolean("opencl.userOverride", false)) prefs.getBoolean("gpuTranslation", false) else false,
+        translationThreads = 4,
+        translationBatch = 256,
+        translationUbatch = 128,
         correction = if (prefs.getBoolean("correction.userOverride", false)) prefs.getBoolean("correction", false)
             else initialMode == PerformanceMode.MAX_QUALITY && initialProfile.correctionSupported,
         glossary = prefs.getString("glossary", "") ?: "",
@@ -91,169 +91,152 @@ class CaptionViewModel(app: Application) : AndroidViewModel(app) {
     val benchmark = _benchmark.asStateFlow()
     private val _benchmarkBusy = MutableStateFlow(false)
     val benchmarkBusy = _benchmarkBusy.asStateFlow()
-    fun benchmarkTranslation(source: String) {
+    private val _asrBenchmark = MutableStateFlow<List<AsrWavBenchmarkResult>>(emptyList())
+    val asrBenchmark = _asrBenchmark.asStateFlow()
+    private val _asrBenchmarkError = MutableStateFlow<String?>(null)
+    val asrBenchmarkError = _asrBenchmarkError.asStateFlow()
+    fun benchmarkAsrWav(uri: android.net.Uri, stage: AsrWavBenchmarkStage, humanReference: String) {
+        if (_busy.value || _benchmarkBusy.value || CaptionState.running.value) return
+        val current = _config.value
+        _benchmarkBusy.value = true
+        _asrBenchmarkError.value = null
+        _asrBenchmark.value = emptyList()
+        viewModelScope.launch {
+            try {
+                val rows = withContext(Dispatchers.IO) {
+                    AsrWavBenchmark(getApplication()).run(uri, stage, humanReference,
+                        current.threads, current.correctionThreads)
+                }
+                _asrBenchmark.value = rows
+                rows.forEach { android.util.Log.i("LiveCaptionsBenchmark", it.reportLine()) }
+            } catch (t: Throwable) {
+                _asrBenchmarkError.value = t.message ?: t.javaClass.simpleName
+            } finally { _benchmarkBusy.value = false }
+        }
+    }
+    fun benchmarkTranslation(source: String, humanReference: String, stage: TranslationBenchmarkStage) {
         if (_busy.value || _benchmarkBusy.value || CaptionState.running.value || source.isBlank()) return
-        val profile = _config.value.profile
-        val glossary = _config.value.glossary
         val current = _config.value
         val sources = source.lineSequence().map(String::trim).filter(String::isNotEmpty).take(12).toList()
         if (sources.isEmpty()) return
+        val targetReferences = humanReference.lineSequence().map(String::trim).filter(String::isNotEmpty).take(12).toList()
+        if (targetReferences.isNotEmpty() && targetReferences.size != sources.size) {
+            _benchmark.value = listOf(TranslationBenchmark(stage.name, 0, "",
+                "Supply one human English reference line per Dutch source line, or leave all references blank"))
+            return
+        }
         _benchmarkBusy.value = true
         _benchmark.value = emptyList()
         viewModelScope.launch {
             val results = mutableListOf<TranslationBenchmark>()
             try {
-                // Validate the smaller 1.8B Q4 first, then production 7B Q4, and
-                // keep the existing 7B Q6 CPU output as the comparison reference.
-                val qualities = listOf(TranslationQuality.HY_Q4, TranslationQuality.HY_7B_Q4,
-                    current.quality.takeIf { it != TranslationQuality.ML_KIT }, TranslationQuality.HY_7B_Q6)
-                    .filterNotNull().distinct()
-                val configs = linkedSetOf(
-                    TranslationBenchmarkConfig(false, 2, 128, 64),
-                    TranslationBenchmarkConfig(true, 2, 128, 64),
-                    TranslationBenchmarkConfig(false, 4, 256, 128),
-                    TranslationBenchmarkConfig(true, 4, 256, 128),
-                    TranslationBenchmarkConfig(false, 4, 512, 128),
-                    TranslationBenchmarkConfig(true, 4, 512, 128),
-                    TranslationBenchmarkConfig(false, current.translationThreads,
-                        current.translationBatch, current.translationUbatch),
-                ).apply {
-                    if (com.asr.live.BuildConfig.OPENCL_ENABLED) add(TranslationBenchmarkConfig(true,
-                        current.translationThreads, current.translationBatch, current.translationUbatch))
-                }.filter { !it.openCl || com.asr.live.BuildConfig.OPENCL_ENABLED }
-                for (quality in qualities) {
+                val planned = TranslationBenchmarkPlan.runs(stage, current.gpuTranslation,
+                    com.asr.live.BuildConfig.OPENCL_ENABLED, current.translationThreads,
+                    current.translationBatch, current.translationUbatch)
+                val runs = if (translationBenchmarkRuns.getAndIncrement() % 2 == 0) planned else planned.reversed()
+                for (run in runs) {
+                    val quality = run.quality
                     val id = quality.bundleId!!
-                    val installed = withContext(Dispatchers.IO) { TranslationModels.present(getApplication(), id) }
-                    if (!installed) {
-                        results += TranslationBenchmark(quality.label, 0, "", "Model not downloaded", quality = quality)
-                        _benchmark.value = results.toList()
-                        continue
-                    }
-                    for (benchConfig in configs) {
-                        val preferOpenCl = benchConfig.openCl
-                        val threads = benchConfig.threads
-                        val batch = benchConfig.batch
-                        val ubatch = benchConfig.ubatch
-                        val result = withContext(Dispatchers.IO) {
-                            val requestLabel = "${quality.label} · ${threads}t · ${batch}/${ubatch}"
-                            val bundle = TranslationModels.bundle(getApplication(), id)
-                            if (!com.asr.live.service.MemoryUsage.canLoad(getApplication(), bundle.size)) {
-                                TranslationBenchmark(requestLabel, 0, "", "Insufficient free RAM with 2 GiB system reserve",
-                                    requestedOpenCl = preferOpenCl, batch = batch, ubatch = ubatch,
-                                    threads = threads, quality = quality)
-                            } else runCatching {
-                                val dir = TranslationModels.verify(getApplication(), id)
-                                val loadStarted = android.os.SystemClock.elapsedRealtime()
-                                com.asr.live.i18n.NativeTranslator(java.io.File(dir, "model.gguf"), threads,
-                                    false, profile, glossary, preferOpenCl,
-                                    getApplication<Application>().getDir("llama-opencl-cache", Context.MODE_PRIVATE), batch, ubatch).use { engine ->
-                                    val loadMs = android.os.SystemClock.elapsedRealtime() - loadStarted
-                                    engine.warmUp()
-                                    val durations = mutableListOf<Long>()
-                                    var prefill = 0L; var decode = 0L
-                                    var inputTokens = 0L; var outputTokens = 0L; var cacheTokens = 0L
-                                    var firstVisible = 0L; var complete = 0L; var prefillSync = 0L
-                                    var prefillDecode = 0L; var decodeCompute = 0L
-                                    var sampling = 0L; var decodeSync = 0L
-                                    var offloadedLayers = 0L; var totalLayers = 0L; var deviceBytes = 0L; var fallbacks = 0L
-                                    var output = emptyList<String>()
-                                    repeat(5) {
-                                        output = sources.map { sentence ->
-                                            val start = android.os.SystemClock.elapsedRealtime()
-                                            val translated = engine.translate(sentence)
-                                            durations += android.os.SystemClock.elapsedRealtime() - start
-                                            prefill += engine.timings.prefillMs
-                                            decode += engine.timings.decodeMs
-                                            inputTokens += engine.timings.inputTokens
-                                            outputTokens += engine.timings.outputTokens
-                                            cacheTokens += engine.timings.cacheReusedTokens
-                                            firstVisible += engine.timings.firstVisibleMs
-                                            complete += engine.timings.completeMs
-                                            prefillDecode += engine.timings.prefillDecodeUs
-                                            prefillSync += engine.timings.prefillSyncUs
-                                            decodeCompute += engine.timings.decodeComputeUs
-                                            sampling += engine.timings.samplingUs
-                                            decodeSync += engine.timings.decodeSyncUs
-                                            offloadedLayers = engine.timings.offloadedLayers
-                                            totalLayers = engine.timings.totalLayers
-                                            deviceBytes = engine.timings.deviceBytesAllocated
-                                            fallbacks = engine.timings.fallbackCount
-                                            translated
-                                        }
+                    val requestLabel = "${stage.name} · ${quality.label} · ${run.threads}t · ${run.batch}/${run.ubatch}"
+                    val result = withContext(Dispatchers.IO) {
+                        if (!TranslationModels.present(getApplication(), id)) {
+                            TranslationBenchmark(requestLabel, 0, "", "Model not downloaded", quality = quality)
+                        } else if (!MemoryUsage.canLoad(getApplication(), TranslationModels.bundle(getApplication(), id).size)) {
+                            TranslationBenchmark(requestLabel, 0, "", "Insufficient free RAM with 2 GiB system reserve",
+                                requestedOpenCl = run.openCl, batch = run.batch, ubatch = run.ubatch,
+                                threads = run.threads, quality = quality)
+                        } else runCatching {
+                            val dir = TranslationModels.verify(getApplication(), id)
+                            val loadStarted = android.os.SystemClock.elapsedRealtime()
+                            com.asr.live.i18n.NativeTranslator(java.io.File(dir, "model.gguf"), run.threads,
+                                false, current.profile, current.glossary, run.openCl,
+                                getApplication<Application>().getDir("llama-opencl-cache", Context.MODE_PRIVATE),
+                                run.batch, run.ubatch).use { engine ->
+                                val loadMs = android.os.SystemClock.elapsedRealtime() - loadStarted
+                                val sessionId = android.os.SystemClock.elapsedRealtimeNanos()
+                                var requestId = 1L
+                                fun translate(text: String, segment: Long): String = engine.translate(
+                                    text, requestId++, sessionId, segment, 0) { }
+
+                                val coldStarted = android.os.SystemClock.elapsedRealtime()
+                                val coldOutput = translate(sources.first(), 1)
+                                val coldRequestMs = android.os.SystemClock.elapsedRealtime() - coldStarted
+                                val coldTimings = engine.timings
+                                engine.warmUp()
+                                val durations = mutableListOf<Long>()
+                                var prefill = 0L; var decode = 0L
+                                var inputTokens = 0L; var outputTokens = 0L; var cacheTokens = 0L
+                                var firstVisible = 0L; var complete = 0L; var prefillSync = 0L
+                                var prefillDecode = 0L; var decodeCompute = 0L
+                                var sampling = 0L; var decodeSync = 0L
+                                var offloadedLayers = 0L; var totalLayers = 0L
+                                var deviceBytes = 0L; var fallbacks = 0L
+                                var output = listOf(coldOutput)
+                                repeat(5) { repeatIndex ->
+                                    output = sources.mapIndexed { sourceIndex, sentence ->
+                                        val start = android.os.SystemClock.elapsedRealtime()
+                                        val translated = translate(sentence, 2L + repeatIndex * sources.size + sourceIndex)
+                                        durations += android.os.SystemClock.elapsedRealtime() - start
+                                        prefill += engine.timings.prefillMs; decode += engine.timings.decodeMs
+                                        inputTokens += engine.timings.inputTokens; outputTokens += engine.timings.outputTokens
+                                        cacheTokens += engine.timings.cacheReusedTokens
+                                        firstVisible += engine.timings.firstVisibleMs; complete += engine.timings.completeMs
+                                        prefillDecode += engine.timings.prefillDecodeUs; prefillSync += engine.timings.prefillSyncUs
+                                        decodeCompute += engine.timings.decodeComputeUs; sampling += engine.timings.samplingUs
+                                        decodeSync += engine.timings.decodeSyncUs
+                                        offloadedLayers = engine.timings.offloadedLayers
+                                        totalLayers = engine.timings.totalLayers
+                                        deviceBytes = engine.timings.deviceBytesAllocated
+                                        fallbacks = engine.timings.fallbackCount
+                                        translated
                                     }
-                                    val memory = com.asr.live.service.MemoryUsage.sample(getApplication())
-                                    val sorted = durations.sorted()
-                                    val average = durations.average().toLong()
-                                    val p95 = sorted[((sorted.size * 0.95).toInt().coerceAtLeast(1) - 1).coerceAtMost(sorted.lastIndex)]
-                                    TranslationBenchmark(requestLabel, average, output.joinToString("\n"),
-                                        rssMiB = memory.appPssKb / 1024, availableMiB = memory.availableKb / 1024,
-                                        backend = engine.backend, requestedOpenCl = preferOpenCl, p95Ms = p95,
-                                        prefillMs = prefill / durations.size, decodeMs = decode / durations.size,
-                                        loadMs = loadMs, batch = batch, ubatch = ubatch, threads = threads,
-                                        inputTokens = inputTokens / durations.size, outputTokens = outputTokens / durations.size,
-                                        cacheReusedTokens = cacheTokens / durations.size,
-                                        firstVisibleMs = firstVisible / durations.size, completeMs = complete / durations.size,
-                                        prefillDecodeUs = prefillDecode / durations.size,
-                                        prefillSyncUs = prefillSync / durations.size,
-                                        decodeComputeUs = decodeCompute / durations.size,
-                                        samplingUs = sampling / durations.size,
-                                        decodeSyncUs = decodeSync / durations.size,
-                                        offloadedLayers = offloadedLayers, totalLayers = totalLayers,
-                                        deviceBytesAllocated = deviceBytes, fallbackCount = fallbacks, quality = quality)
                                 }
-                            }.getOrElse { TranslationBenchmark(requestLabel, 0, "", it.message ?: "Benchmark failed",
-                                requestedOpenCl = preferOpenCl, batch = batch, ubatch = ubatch,
-                                threads = threads, quality = quality) }
-                        }
-                        results += result
-                        _benchmark.value = results.toList()
+                                val memory = MemoryUsage.sample(getApplication())
+                                val sorted = durations.sorted()
+                                val p50 = sorted[((sorted.size * .50).toInt().coerceAtLeast(1) - 1).coerceAtMost(sorted.lastIndex)]
+                                val p95 = sorted[((sorted.size * .95).toInt().coerceAtLeast(1) - 1).coerceAtMost(sorted.lastIndex)]
+                                val outputText = output.joinToString("\n")
+                                val referenceWer = if (targetReferences.isEmpty()) null else {
+                                    val expected = com.asr.live.asr.WordErrorScorer.normalize(targetReferences.joinToString(" "))
+                                    val actual = com.asr.live.asr.WordErrorScorer.normalize(output.joinToString(" "))
+                                    com.asr.live.asr.WordErrorScorer.count(expected, actual).wer
+                                }
+                                TranslationBenchmark(requestLabel, durations.average().toLong(), outputText,
+                                    appProcessGroupPssMiB = memory.appPssKb / 1024, availableMiB = memory.availableKb / 1024,
+                                    backend = engine.backend, requestedOpenCl = run.openCl, p50Ms = p50, p95Ms = p95,
+                                    coldRequestMs = coldRequestMs, prefillMs = prefill / durations.size,
+                                    decodeMs = decode / durations.size, loadMs = loadMs,
+                                    batch = run.batch, ubatch = run.ubatch, threads = run.threads,
+                                    inputTokens = (inputTokens + coldTimings.inputTokens) / (durations.size + 1),
+                                    outputTokens = (outputTokens + coldTimings.outputTokens) / (durations.size + 1),
+                                    cacheReusedTokens = (cacheTokens + coldTimings.cacheReusedTokens) / (durations.size + 1),
+                                    firstVisibleMs = firstVisible / durations.size, completeMs = complete / durations.size,
+                                    prefillDecodeUs = prefillDecode / durations.size, prefillSyncUs = prefillSync / durations.size,
+                                    decodeComputeUs = decodeCompute / durations.size, samplingUs = sampling / durations.size,
+                                    decodeSyncUs = decodeSync / durations.size, offloadedLayers = offloadedLayers,
+                                    totalLayers = totalLayers, deviceBytesAllocated = deviceBytes,
+                                    fallbackCount = fallbacks, quality = quality, humanReferenceWer = referenceWer,
+                                    thermalStatus = memory.thermalStatus, thermalMaxC = memory.thermalMaxC)
+                            }
+                        }.getOrElse { TranslationBenchmark(requestLabel, 0, "", it.message ?: "Benchmark failed",
+                            requestedOpenCl = run.openCl, batch = run.batch, ubatch = run.ubatch,
+                            threads = run.threads, quality = quality) }
                     }
+                    results += result
+                    _benchmark.value = results.toList()
                 }
-                val q6ReferenceText = results.firstOrNull {
-                    it.quality == TranslationQuality.HY_7B_Q6 && !it.requestedOpenCl && it.error == null
-                }?.output?.let(::canonicalTranslation)
-                val selectedBaselineText = results.firstOrNull {
-                    it.quality == current.quality && !it.requestedOpenCl && it.threads == current.translationThreads &&
-                        it.batch == current.translationBatch && it.ubatch == current.translationUbatch && it.error == null
-                }?.output?.let(::canonicalTranslation)
-                val qualified = if (selectedBaselineText == null) emptyList() else results.filter { candidate ->
-                    val matchingCpu = if (!candidate.requestedOpenCl) true else results.firstOrNull {
-                        it.quality == candidate.quality && !it.requestedOpenCl && it.threads == candidate.threads &&
-                            it.batch == candidate.batch && it.ubatch == candidate.ubatch && it.error == null
-                    }?.let { canonicalTranslation(it.output) == canonicalTranslation(candidate.output) } == true
-                    candidate.quality == current.quality && candidate.error == null &&
-                        canonicalTranslation(candidate.output) == selectedBaselineText && matchingCpu &&
-                        (!candidate.requestedOpenCl || (candidate.backend.startsWith("Adreno OpenCL") &&
-                            candidate.offloadedLayers > 0))
-                }
-                if (selectedBaselineText != null) {
-                    val marked = results.map { result -> result.copy(qualityMatched = q6ReferenceText?.let { reference ->
-                        result.error == null && canonicalTranslation(result.output) == reference
-                    }) }
-                    _benchmark.value = marked
-                    val best = qualified.minByOrNull { it.elapsedMs }
-                    if (best != null) {
-                        val tuned = current.copy(gpuTranslation = best.requestedOpenCl,
-                            translationThreads = best.threads, translationBatch = best.batch, translationUbatch = best.ubatch)
-                        _config.value = tuned
-                        prefs.edit().putString("quality", tuned.quality.name).putBoolean("gpuTranslation", tuned.gpuTranslation)
-                            .putInt("translationThreads", tuned.translationThreads)
-                            .putInt("translationBatch", tuned.translationBatch).putInt("translationUbatch", tuned.translationUbatch)
-                            .putString("autotune.$deviceKey", "${tuned.quality.name}:${tuned.gpuTranslation}:${tuned.translationBatch}:${tuned.translationUbatch}:${tuned.translationThreads}")
-                            .apply()
-                        refreshPresence()
-                    }
-                }
+            } catch (t: IllegalArgumentException) {
+                _benchmark.value = listOf(TranslationBenchmark(stage.name, 0, "", t.message ?: "Invalid benchmark stage"))
             } finally { _benchmarkBusy.value = false }
         }
     }
 
-    private fun canonicalTranslation(text: String) = text.trim().replace(Regex("\\s+"), " ").lowercase()
     init { refreshPresence() }
     fun model() = ModelCatalog.byId(_config.value.modelId) ?: ModelCatalog.DEFAULT
     fun models() = ModelCatalog.ALL.filter { it.supports(_config.value.profile.source) }
     fun selectMode(mode: PerformanceMode) = update(_config.value.withMode(mode))
-    fun update(config: SessionConfig, userChangedQnn: Boolean = false, userChangedCorrection: Boolean = false) {
+    fun update(config: SessionConfig, userChangedQnn: Boolean = false, userChangedCorrection: Boolean = false,
+               userChangedOpenCl: Boolean = false) {
         if (_busy.value || _benchmarkBusy.value || CaptionState.running.value) return
         val info = ModelCatalog.byId(config.modelId)
         var adjusted = if (config.profile != _config.value.profile) config.copy(modelId = ModelCatalog.defaultFor(config.profile.source).id, correction = config.correction && config.profile.correctionSupported)
@@ -265,10 +248,6 @@ class CaptionViewModel(app: Application) : AndroidViewModel(app) {
             _managed.value.none { it.id == adjusted.modelId && it.selectable }) return
         val previous = _config.value
         _config.value = adjusted
-        if (previous.quality != adjusted.quality || previous.gpuTranslation != adjusted.gpuTranslation ||
-            previous.translationThreads != adjusted.translationThreads ||
-            previous.translationBatch != adjusted.translationBatch || previous.translationUbatch != adjusted.translationUbatch)
-            prefs.edit().remove("autotune.$deviceKey").apply()
         if (previous.quality != adjusted.quality) prefs.edit().putBoolean("quality.userOverride", true).apply()
         prefs.edit().putString("profile", adjusted.profile.name).putString("model", adjusted.modelId)
             .putInt("threads", adjusted.threads).putInt("correctionThreads", adjusted.correctionThreads).putString("quality", adjusted.quality.name)
@@ -277,6 +256,7 @@ class CaptionViewModel(app: Application) : AndroidViewModel(app) {
             .putBoolean("qnn", adjusted.qnn).putBoolean("gpuTranslation", adjusted.gpuTranslation).apply()
         if (userChangedQnn) prefs.edit().putBoolean("qnn.userOverride", true).apply()
         if (userChangedCorrection) prefs.edit().putBoolean("correction.userOverride", true).apply()
+        if (userChangedOpenCl) prefs.edit().putBoolean("opencl.userOverride", true).apply()
         prefs.edit().putInt("translationThreads", adjusted.translationThreads)
             .putInt("translationBatch", adjusted.translationBatch).putInt("translationUbatch", adjusted.translationUbatch).apply()
         if (previous.profile != adjusted.profile || previous.modelId != adjusted.modelId || previous.quality != adjusted.quality ||
@@ -398,7 +378,7 @@ class CaptionViewModel(app: Application) : AndroidViewModel(app) {
     }
     fun clear() = CaptionState.clear()
     fun acknowledgeDisplayed(key: SegmentKey) {
-        CaptionState.acknowledgeDisplayed(key.session, key, System.nanoTime())
+        CaptionState.acknowledgeDisplayed(key.session, key, android.os.SystemClock.elapsedRealtimeNanos())
     }
     fun rateComparison(key: SegmentKey, vote: TranslationVote) { CaptionState.vote(key, vote) }
     fun dismissError() = CaptionState.setError(null)

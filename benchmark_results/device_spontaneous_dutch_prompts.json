@@ -1,0 +1,39 @@
+{
+  "schema": "live-captions-spontaneous-nl-prompts-v1",
+  "status": "prompts-only; no audio or human references have been recorded",
+  "language": "nl-NL",
+  "instructions": [
+    "Respond naturally in Dutch from memory; do not read the prompt aloud or prepare a script.",
+    "Speak quickly but naturally, including pauses, fillers, self-corrections and ordinary contractions.",
+    "For noise trials, record the same speaking style with the listed everyday background sound; do not add synthetic noise after capture.",
+    "Record clean tuning prompts first. Keep validation and final_holdout audio and human references sealed until settings are frozen.",
+    "A human annotator transcribes exactly what is audible in reference_nl, including spoken numbers in a consistent written form. Never copy ASR output as a reference.",
+    "Optionally have a second human annotator independently translate the intended Dutch into reference_en for translation scoring."
+  ],
+  "prompts": [
+    {"id":"spont-nl-t01","split":"tuning","conditions":["fast","number","negation"],"prompt":"Vertel hoe je een afspraak moest verzetten. Noem de oorspronkelijke en nieuwe tijd en leg uit wat je juist niet kon doen."},
+    {"id":"spont-nl-t02","split":"tuning","conditions":["fast","number","self-correction"],"prompt":"Leg aan een collega uit hoeveel spullen je hebt besteld, wat de prijs was en welk aantal je eerst verkeerd had doorgegeven."},
+    {"id":"spont-nl-t03","split":"tuning","conditions":["fast","negation","repair"],"prompt":"Vertel over een plan dat niet doorging. Verbeter jezelf minstens één keer terwijl je uitlegt wat er veranderde."},
+    {"id":"spont-nl-t04","split":"tuning","conditions":["fast","number","street-noise"],"prompt":"Beschrijf een route die je haastig moest aanpassen. Noem straatnamen, een huisnummer of een tijdstip zoals je dat spontaan zou vertellen."},
+    {"id":"spont-nl-t05","split":"tuning","conditions":["fast","negation","kitchen-noise"],"prompt":"Vertel hoe een recept mislukte of juist lukte, welke stap je oversloeg en wat je daarna anders deed."},
+    {"id":"spont-nl-t06","split":"tuning","conditions":["fast","numbers","filler-words"],"prompt":"Geef iemand mondeling een korte update over reistijd, overstappen en een bedrag dat je onderweg betaalde."},
+    {"id":"spont-nl-t07","split":"tuning","conditions":["fast","late-negation","self-correction"],"prompt":"Vertel wat je dacht te hebben afgesproken en corrigeer daarna de belangrijkste ontkenning of voorwaarde."},
+    {"id":"spont-nl-t08","split":"tuning","conditions":["fast","number","room-noise"],"prompt":"Beschrijf hoe je een kapot apparaat probeerde te repareren en noem de duur, een instelling of een modelnummer."},
+    {"id":"spont-nl-t09","split":"tuning","conditions":["fast","negation","overlapping-background-speech"],"prompt":"Vertel waarom je een aanbod afsloeg en wat je wel wilde. Spreek door als er op de achtergrond zacht wordt gepraat."},
+    {"id":"spont-nl-t10","split":"tuning","conditions":["fast","numbers","hesitation"],"prompt":"Leg uit hoe je een weekendtrip plande: noem een datum, vertrektijd, aantal personen en iets waar je nog over twijfelde."},
+    {"id":"spont-nl-v01","split":"validation","conditions":["fast","number","negation"],"prompt":"Vertel hoe een levering te laat kwam. Noem de verwachte en werkelijke tijd en wat je daardoor niet kon afmaken."},
+    {"id":"spont-nl-v02","split":"validation","conditions":["fast","number","car-noise"],"prompt":"Vertel onderweg aan een passagier welke afslag je mistte en hoeveel minuten dat ongeveer kostte."},
+    {"id":"spont-nl-v03","split":"validation","conditions":["fast","late-negation","repair"],"prompt":"Leg uit wat je voor iemand hebt geregeld en corrigeer een detail dat je eerst verkeerd zegt."},
+    {"id":"spont-nl-v04","split":"validation","conditions":["fast","numbers","office-noise"],"prompt":"Geef een spontane statusupdate met een percentage, een deadline en wat nog niet klaar is."},
+    {"id":"spont-nl-v05","split":"validation","conditions":["fast","negation","self-correction"],"prompt":"Beschrijf een gesprek waarin iemand je verkeerd begreep; vertel wat je niet bedoelde en hoe je het herformuleerde."},
+    {"id":"spont-nl-v06","split":"validation","conditions":["fast","number","television-background"],"prompt":"Vertel in je eigen woorden wat je gisteren kocht, hoeveel het kostte en waarom je een alternatief niet koos."},
+    {"id":"spont-nl-v07","split":"validation","conditions":["fast","numbers","filler-words"],"prompt":"Leg aan de telefoon uit hoe laat je aankomt, hoeveel mensen meegaan en welke aansluiting je misschien mist."},
+    {"id":"spont-nl-v08","split":"validation","conditions":["fast","negation","street-noise"],"prompt":"Vertel spontaan hoe je iemand de weg wees en waarschuwde waar diegene juist niet moest afslaan."},
+    {"id":"spont-nl-h01","split":"final_holdout","conditions":["fast","number","negation"],"prompt":"Vertel over een onverwachte wijziging in een reservering. Noem aantallen of tijden en wat niet meer beschikbaar was."},
+    {"id":"spont-nl-h02","split":"final_holdout","conditions":["fast","number","background-music"],"prompt":"Vertel spontaan wat je op een drukke plek probeerde te bestellen, wat het kostte en wat je uiteindelijk niet nam."},
+    {"id":"spont-nl-h03","split":"final_holdout","conditions":["fast","late-negation","self-correction"],"prompt":"Vertel over een instructie die je verkeerd onthield. Leg uit welke stap je niet moest uitvoeren en herstel je verhaal als nodig."},
+    {"id":"spont-nl-h04","split":"final_holdout","conditions":["fast","numbers","traffic-noise"],"prompt":"Geef een korte mondelinge update over een omleiding, een afstand of tijd en waar je nu naartoe gaat."},
+    {"id":"spont-nl-h05","split":"final_holdout","conditions":["fast","negation","room-noise"],"prompt":"Leg uit waarom een eerdere oplossing niet werkte en wat je zonder hulp hebt geprobeerd."},
+    {"id":"spont-nl-h06","split":"final_holdout","conditions":["fast","numbers","disfluency"],"prompt":"Vertel een vriend hoe je een onverwachte uitgave verdeelde, noem bedragen en verbeter jezelf als je iets door elkaar haalt."}
+  ]
+}

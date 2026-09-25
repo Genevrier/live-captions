@@ -31,10 +31,12 @@ class PerformanceModeTest {
         assertFalse(chinese.correction)
     }
 
-    @Test fun opusIsOnlyLoadedForExplicitUltraLowLatencyComparison() {
+    @Test fun fastModeUsesTheSmallerHyModelAndOnlyItsAdvertisedOpusComparison() {
         assertFalse(SessionConfig().withMode(PerformanceMode.MAX_QUALITY).opusBenchmarkEnabled)
         assertFalse(SessionConfig().withMode(PerformanceMode.BALANCED).opusBenchmarkEnabled)
-        assertTrue(SessionConfig().withMode(PerformanceMode.FAST).opusBenchmarkEnabled)
+        val fast = SessionConfig().withMode(PerformanceMode.FAST)
+        assertEquals(TranslationQuality.HY_Q4, fast.quality)
+        assertTrue(fast.opusBenchmarkEnabled)
         assertFalse(SessionConfig(profile = Profile.CHINESE_ENGLISH).withMode(PerformanceMode.FAST).opusBenchmarkEnabled)
         assertFalse(SessionConfig().withMode(PerformanceMode.FAST)
             .copy(quality = TranslationQuality.ML_KIT).opusBenchmarkEnabled)

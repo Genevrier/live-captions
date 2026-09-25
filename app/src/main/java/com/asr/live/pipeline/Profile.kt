@@ -13,7 +13,7 @@ enum class Profile(val source: String, val target: String, val label: String) {
 }
 
 enum class PerformanceMode(val label: String) {
-    FAST("Ultra Low Latency"), BALANCED("Balanced"), MAX_QUALITY("Max quality");
+    FAST("Fast · Hy 1.8B Q4"), BALANCED("Balanced · Hy 1.8B Q8"), MAX_QUALITY("Max · Hy 7B Q4");
 
     companion object {
         fun defaultFor(soc: String?, manufacturer: String?, model: String?): PerformanceMode =
@@ -62,7 +62,7 @@ data class SessionConfig(
 fun SessionConfig.withMode(mode: PerformanceMode): SessionConfig {
     val recognizer = if (profile == Profile.CHINESE_ENGLISH) "qwen3-asr-0.6b-int8" else "nemotron-3.5-560ms-int8"
     val quality = when (mode) {
-        PerformanceMode.FAST -> TranslationQuality.HY_7B_Q4
+        PerformanceMode.FAST -> TranslationQuality.HY_Q4
         PerformanceMode.BALANCED -> TranslationQuality.HY_Q8
         PerformanceMode.MAX_QUALITY -> TranslationQuality.HY_7B_Q4
     }

@@ -25,6 +25,11 @@ class StreamingEngine(
 
     private val decodeTelemetry = DecodeTelemetry()
     override val decodeStats: AsrDecodeStats get() = decodeTelemetry.snapshot()
+    private var audioFeedNanos = 0L
+    private var resultNanos = 0L
+    private var endpointCheckNanos = 0L
+    override val pipelineStats: AsrPipelineStats
+        get() = AsrPipelineStats(audioFeedNanos, resultNanos, endpointCheckNanos)
 
     private val recognizer = OnlineRecognizer(
         config = OnlineRecognizerConfig(
@@ -58,11 +63,18 @@ class StreamingEngine(
     private var lastPartial = ""
 
     override fun accept(samples: FloatArray) {
+        val feedStarted = System.nanoTime()
         stream.acceptWaveform(samples, SAMPLE_RATE)
+        audioFeedNanos += System.nanoTime() - feedStarted
         while (recognizer.isReady(stream)) decodeTelemetry.measure { recognizer.decode(stream) }
 
+        val resultStarted = System.nanoTime()
         val text = recognizer.getResult(stream).text
-        if (recognizer.isEndpoint(stream)) {
+        resultNanos += System.nanoTime() - resultStarted
+        val endpointStarted = System.nanoTime()
+        val isEndpoint = recognizer.isEndpoint(stream)
+        endpointCheckNanos += System.nanoTime() - endpointStarted
+        if (isEndpoint) {
             onFinal(text)
             recognizer.reset(stream)
             stream.setOption("language", com.asr.live.pipeline.BackendPolicy.nemotronLanguage(language))
@@ -75,9 +87,13 @@ class StreamingEngine(
     }
 
     override fun finish() {
+        val feedStarted = System.nanoTime()
         stream.inputFinished()
+        audioFeedNanos += System.nanoTime() - feedStarted
         while (recognizer.isReady(stream)) decodeTelemetry.measure { recognizer.decode(stream) }
+        val resultStarted = System.nanoTime()
         val text = recognizer.getResult(stream).text
+        resultNanos += System.nanoTime() - resultStarted
         if (text.isNotBlank()) onFinal(text)
         onPartial("")
     }

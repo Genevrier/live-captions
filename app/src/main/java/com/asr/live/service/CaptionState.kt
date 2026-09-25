@@ -1,6 +1,7 @@
 package com.asr.live.service
 
 import android.util.Log
+import android.os.SystemClock
 import com.asr.live.pipeline.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -33,11 +34,17 @@ data class Performance(
     val audioToProvisionalMs: Long? = null, val stableToProvisionalMs: Long? = null,
     val audioToFinalMs: Long? = null, val finalLatencyMs: Long? = null,
     val audioDepth: Int = 0, val provisionalDepth: Int = 0, val finalDepth: Int = 0,
+    val audioSampleRateHz: Int = 0, val audioSamplesCaptured: Long = 0,
+    val audioRms: Double = 0.0, val audioPeak: Double = 0.0, val audioClippedSamples: Long = 0,
+    val audioTimestampGaps: Long = 0, val audioFirstMonotonicNs: Long? = null,
+    val audioLastMonotonicNs: Long? = null,
     val captionBacklogMs: Long = 0,
     val backlogMs: Long = 0, val droppedAudioMs: Long = 0, val skippedTranslations: Int = 0,
     val correctionMs: Long = 0, val correctionRtf: Double = 0.0, val skippedCorrections: Int = 0,
     val appPssKb: Long = 0, val rssKb: Long = 0, val nativeHeapKb: Long = 0,
-    val javaHeapKb: Long = 0, val availableKb: Long = 0, val estimatedModelsKb: Long = 0,
+    val qnnPssKb: Long = 0, val qnnProcessPresent: Boolean = false,
+    val thermalMaxC: Double? = null, val readableThermalSensors: Int = 0,
+    val javaHeapKb: Long = 0, val availableKb: Long = 0, val modelFilesDiskKb: Long = 0,
     val performanceMode: String = "Balanced",
     val asr: String = "", val translator: String = "ML Kit", val backend: String = "CPU",
     val correctionThreads: Int = 4,
@@ -67,9 +74,10 @@ object CaptionState {
     private val displayedResults = linkedSetOf<TranslationResultIdentity>()
     private val computedAtNs = mutableMapOf<TranslationResultIdentity, Long>()
     private val sessionStartedAtNs = mutableMapOf<Long, Long>()
+    @Synchronized fun sessionStartNs(id: Long): Long? = sessionStartedAtNs[id]
     @Synchronized fun begin(id: Long, config: SessionConfig, modelName: String) {
         generation = id; ledger.start(id); comparisonLedger.clear(); displayedResults.clear(); computedAtNs.clear()
-        sessionStartedAtNs[id] = System.nanoTime()
+        sessionStartedAtNs[id] = SystemClock.elapsedRealtimeNanos()
         sessionStartedAtNs.keys.removeAll { it != id }
         publish(); publishComparisons()
         val translationLabel = if (config.opusBenchmarkEnabled)

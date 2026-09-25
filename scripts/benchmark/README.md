@@ -10,6 +10,8 @@ the app. It is a CPU component test: it does not instantiate Android's
 or Android queue scheduling. The native translation runner calls the same C++
 translation core used by the app, but does not run the Android orchestration.
 
+For the Magic V5 sequence, spontaneous-speaker prompts, human-reference requirements, and audio-integrity checks, see [`benchmark_results/device/MAGIC_V5_RUNBOOK.md`](../../benchmark_results/device/MAGIC_V5_RUNBOOK.md) and [`benchmark_results/device_spontaneous_dutch_prompts.json`](../../benchmark_results/device_spontaneous_dutch_prompts.json). The prompt bank is not an audio corpus: it still needs human-recorded speech and verbatim annotations before it can support an accuracy claim. Validate a completed device manifest with `python3 scripts/benchmark/validate_device_corpus.py <manifest.json>`.
+
 ## Setup
 
 Use Python 3.12, `ffmpeg`, CMake, a C++17 compiler, and the pinned packages:

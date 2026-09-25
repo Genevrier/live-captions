@@ -6,6 +6,8 @@ import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.os.IBinder
 import android.os.Build
+import android.os.SystemClock
+import android.util.Log
 import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
 import com.asr.live.MainActivity
@@ -51,8 +53,11 @@ class CaptionService : Service() {
                 if (CaptionState.running.value) {
                     val memory = withContext(Dispatchers.IO) { MemoryUsage.sample(this@CaptionService) }
                     CaptionState.metrics(generation) { it.copy(appPssKb = memory.appPssKb, rssKb = memory.rssKb,
+                        qnnPssKb = memory.qnnPssKb, qnnProcessPresent = memory.qnnProcessPresent,
                         nativeHeapKb = memory.nativeHeapKb, javaHeapKb = memory.javaHeapKb, availableKb = memory.availableKb,
-                        thermalStatus = memory.thermalStatus) }
+                        thermalStatus = memory.thermalStatus, thermalMaxC = memory.thermalMaxC,
+                        readableThermalSensors = memory.readableThermalSensors) }
+                    logRunSample(generation)
                     // Recheck permission and lock-screen visibility even during a silent phrase.
                     overlay.render(CaptionState.lines.value, CaptionState.lifecycle.value,
                         if (CaptionState.metrics.value.profile == Profile.ENGLISH_FRENCH.label) "French" else "English")
@@ -61,6 +66,47 @@ class CaptionService : Service() {
             }
         }
     }
+
+    /** Low-rate, transcript-free snapshots make sustained device runs reproducible from logcat. */
+    private fun logRunSample(generation: Long) {
+        val atNs = SystemClock.elapsedRealtimeNanos()
+        val metrics = CaptionState.metrics.value
+        val sessionStartNs = CaptionState.sessionStartNs(generation) ?: atNs
+        val reasons = metrics.rejectionReasons.entries.sortedBy { it.key }
+            .joinToString(",") { "${it.key.replace(Regex("[^A-Za-z0-9_-]"), "_")}:${it.value}" }
+            .ifBlank { "none" }
+        Log.i("LiveCaptionsRun", "session=$generation atNs=$atNs elapsedNs=${(atNs - sessionStartNs).coerceAtLeast(0)} " +
+            "state=${CaptionState.lifecycle.value} profile=${metrics.profile.replace(' ', '_')} " +
+            "asrBackend=${metrics.backend.replace(' ', '_')} translationBackend=${metrics.translationBackend.replace(' ', '_')} " +
+            "opusBackend=${metrics.opusBackend.replace(' ', '_')} decodeCalls=${metrics.decodeCalls} " +
+            "decodeP50Ms=${metrics.decodeP50Ms} decodeP95Ms=${metrics.decodeP95Ms} decodeMaxMs=${metrics.decodeMaxMs} " +
+            "asrComputeMs=${metrics.asrComputeMs} endpointWaitMs=${metrics.endpointWaitMs ?: -1} " +
+            "hyWaitMs=${metrics.hyWaitMs} hyComputeMs=${metrics.hyComputeMs} hyDisplayMs=${metrics.hyDisplayMs} " +
+            "hyPrefillMs=${metrics.translationPrefillMs} hyGenerationMs=${metrics.translationDecodeMs} " +
+            "hyFirstTokenMs=${metrics.translationFirstTokenMs} hyFirstVisibleMs=${metrics.translationFirstVisibleMs} " +
+            "hyCompleteMs=${metrics.translationCompleteMs} hyInputTokens=${metrics.translationInputTokens} " +
+            "hyOutputTokens=${metrics.translationOutputTokens} hyCacheTokens=${metrics.translationCacheTokens} " +
+            "hyOffloadedLayers=${metrics.translationOffloadedLayers} hyTotalLayers=${metrics.translationTotalLayers} " +
+            "hyFallbacks=${metrics.translationFallbackCount} opusWaitMs=${metrics.opusWaitMs} " +
+            "opusComputeMs=${metrics.opusComputeMs} opusPrefillMs=${metrics.opusPrefillMs} " +
+            "opusGenerationMs=${metrics.opusGenerationMs} opusFirstTokenMs=${metrics.opusFirstTokenMs} " +
+            "correctionWaitMs=${metrics.correctionWaitMs} correctionComputeMs=${metrics.correctionMs} " +
+            "correctionSkipped=${metrics.skippedCorrections} resultsComputed=${metrics.resultsComputed} " +
+            "resultsDisplayed=${metrics.resultsDisplayed} resultsRejected=${metrics.resultsRejected} " +
+            "rejectionReasons=$reasons firstUsefulMs=${metrics.firstUsefulCaptionMs ?: -1} " +
+            "audioToProvisionalMs=${metrics.audioToProvisionalMs ?: -1} audioToFinalMs=${metrics.audioToFinalMs ?: -1} " +
+            "finalLatencyMs=${metrics.finalLatencyMs ?: -1} audioHz=${metrics.audioSampleRateHz} " +
+            "audioSamples=${metrics.audioSamplesCaptured} audioRms=${metrics.audioRms} audioPeak=${metrics.audioPeak} " +
+            "audioClipped=${metrics.audioClippedSamples} audioTimestampGaps=${metrics.audioTimestampGaps} " +
+            "audioFirstNs=${metrics.audioFirstMonotonicNs ?: -1} audioLastNs=${metrics.audioLastMonotonicNs ?: -1} " +
+            "audioDepth=${metrics.audioDepth} provisionalDepth=${metrics.provisionalDepth} finalDepth=${metrics.finalDepth} " +
+            "captionBacklogMs=${metrics.captionBacklogMs} captureBacklogMs=${metrics.backlogMs} " +
+            "droppedAudioMs=${metrics.droppedAudioMs} skippedTranslations=${metrics.skippedTranslations} " +
+            "appGroupPssKb=${metrics.appPssKb} qnnPssKb=${metrics.qnnPssKb} qnnPresent=${metrics.qnnProcessPresent} " +
+            "availableKb=${metrics.availableKb} thermal=${metrics.thermalStatus} " +
+            "thermalMaxC=${metrics.thermalMaxC ?: -1.0} thermalSensors=${metrics.readableThermalSensors}")
+    }
+
     override fun onBind(intent: Intent?): IBinder? = null
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         latestStartId = startId
@@ -180,6 +226,7 @@ class CaptionService : Service() {
 
     private fun finishStop(stoppedGeneration: Long, requestGeneration: Long) {
         if (destroyed || requestGeneration != requests.get()) return
+        logRunSample(stoppedGeneration)
         CaptionState.stopped(stoppedGeneration)
         stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelfResult(latestStartId)

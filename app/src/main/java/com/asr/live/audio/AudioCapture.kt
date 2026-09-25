@@ -12,6 +12,7 @@ class AudioCapture(
     private val onStarted: () -> Unit,
     private val onFinished: () -> Unit,
     private val onError: (Throwable) -> Unit,
+    private val onFormat: (Int, Int) -> Unit = { _, _ -> },
 ) {
     companion object {
         const val SAMPLE_RATE = 16000
@@ -37,6 +38,7 @@ class AudioCapture(
             recorder = AudioRecord(MediaRecorder.AudioSource.VOICE_RECOGNITION, SAMPLE_RATE,
                 AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT, maxOf(minimum, 32000))
             check(recorder.state == AudioRecord.STATE_INITIALIZED) { "Microphone initialization failed" }
+            onFormat(recorder.sampleRate, recorder.channelCount)
             val manager = context.getSystemService(AudioManager::class.java)
             manager.getDevices(AudioManager.GET_DEVICES_INPUTS)
                 .firstOrNull { it.type == AudioDeviceInfo.TYPE_BUILTIN_MIC }?.let {

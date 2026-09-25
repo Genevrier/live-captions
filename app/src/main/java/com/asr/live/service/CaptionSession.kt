@@ -5,6 +5,8 @@ import android.os.SystemClock
 import android.util.Log
 import com.asr.live.asr.EngineFactory
 import com.asr.live.audio.AudioCapture
+import com.asr.live.audio.AudioSignalTelemetry
+import com.asr.live.audio.pcm16Sha256
 import com.asr.live.i18n.MlKitTranslator
 import com.asr.live.i18n.LocalTranslator
 import com.asr.live.i18n.NativeTranslator
@@ -20,8 +22,11 @@ import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.atomic.AtomicReference
 
-internal data class AudioChunk(val samples: FloatArray, val capturedAtNs: Long, val sequence: Long)
-internal data class CorrectionRequest(val request: TranslationRequest, val samples: FloatArray, val enqueuedAtNs: Long)
+internal data class AudioChunk(val samples: FloatArray, val capturedAtNs: Long, val sequence: Long, val firstSample: Long)
+internal data class CorrectionRequest(
+    val request: TranslationRequest, val samples: FloatArray, val enqueuedAtNs: Long,
+    val sourceStartSample: Long = -1, val sourceEndSample: Long = -1,
+)
 internal data class TranslationRequest(
     val key: SegmentKey,
     val text: String,
@@ -58,6 +63,8 @@ class CaptionSession(
     @Volatile private var correctionRtf = 0.0
     private val corrector = Thread(::correctLoop, "endpoint-correction")
     private val sequence = AtomicLong()
+    private val capturedSamples = AtomicLong()
+    private val audioSignalTelemetry = AudioSignalTelemetry()
     private val requestSequence = AtomicLong()
     private val activeHyRequest = AtomicReference<TranslationRequest?>()
     private val hyScheduleLock = Any()
@@ -66,6 +73,7 @@ class CaptionSession(
     private val inferenceBusy = AtomicBoolean(false)
     @Volatile private var activeFinalEndpoint: Long? = null
     @Volatile private var segmentAudioStartedAtNs: Long? = null
+    private var segmentPcmStartSample: Long? = null
     @Volatile private var lastPartialAtNs: Long? = null
     @Volatile private var opusTranslator: LocalTranslator? = null
     @Volatile private var finalTranslator: LocalTranslator? = null
@@ -84,7 +92,14 @@ class CaptionSession(
     private val capture = AudioCapture(ctx,
         onChunk = { samples ->
             if (!lifecycle.isCancelled()) {
-                val dropped = audioQueue.offer(AudioChunk(samples, SystemClock.elapsedRealtimeNanos(), sequence.incrementAndGet()))
+                val capturedAtNs = SystemClock.elapsedRealtimeNanos()
+                val firstSample = capturedSamples.getAndAdd(samples.size.toLong())
+                val signal = audioSignalTelemetry.accept(samples, capturedAtNs)
+                CaptionState.metrics(generation) { it.copy(audioSampleRateHz = signal.sampleRateHz,
+                    audioSamplesCaptured = signal.samples, audioRms = signal.rms, audioPeak = signal.peak,
+                    audioClippedSamples = signal.clippedSamples, audioTimestampGaps = signal.timestampGaps,
+                    audioFirstMonotonicNs = signal.firstMonotonicNs, audioLastMonotonicNs = signal.lastMonotonicNs) }
+                val dropped = audioQueue.offer(AudioChunk(samples, capturedAtNs, sequence.incrementAndGet(), firstSample))
                 CaptionState.metrics(generation) { it.copy(audioDepth = audioQueue.size(),
                     droppedAudioMs = it.droppedAudioMs + (dropped?.samples?.size ?: 0) / 16) }
             }
@@ -97,7 +112,12 @@ class CaptionSession(
                 trace("microphone-finished", details = "queued=${audioQueue.size()}")
             }
         },
-        onError = { fail("Microphone: ${it.message}") })
+        onError = { fail("Microphone: ${it.message}") },
+        onFormat = { sampleRate, channels ->
+            audioSignalTelemetry.setSampleRate(sampleRate)
+            CaptionState.metrics(generation) { it.copy(audioSampleRateHz = sampleRate) }
+            trace("microphone-format", details = "sampleRateHz=$sampleRate channels=$channels encoding=PCM16")
+        })
     private val asr = Thread(::recognize, "recognition")
     private val opus = Thread(::opusLoop, "opus-ab-translation")
     private val final = Thread(::translateLoop, "hy-translation")
@@ -160,7 +180,18 @@ class CaptionSession(
             fun create(): com.asr.live.asr.AsrEngine = if (config.qnn && !qnnFailed && info.kind == EngineKind.NEMOTRON)
                 com.asr.live.asr.QnnEngine(ctx, config.profile.source, config.threads, ::partial, ::endpoint,
                     { backend -> if (backend.startsWith("CPU")) qnnFailed = true; CaptionState.metrics(generation) { it.copy(backend = backend) } },
-                    { pcm.invalidate(); CaptionState.discontinuity(generation) })
+                    { pcm.invalidate(); CaptionState.discontinuity(generation) }, generation,
+                    { profile -> if (profile.rpcCalls == 0L || profile.rpcCalls % 64L == 0L) trace("qnn-profile", details =
+                        "initMs=${profile.initializeTotalNanos / 1_000_000} libraryMs=${profile.libraryLoadNanos / 1_000_000} " +
+                            "dspCopyMs=${profile.dspCopyNanos / 1_000_000} dspSetupMs=${profile.dspSetupNanos / 1_000_000} " +
+                        "prepareMs=${profile.recognizerPrepareNanos / 1_000_000} rpcP50Ms=${profile.rpcP50Nanos / 1_000_000} " +
+                        "rpcP95Ms=${profile.rpcP95Nanos / 1_000_000} serviceP95Ms=${profile.serviceP95Nanos / 1_000_000} " +
+                        "clientQueueP50Ms=${profile.clientQueueP50Nanos / 1_000_000} " +
+                        "clientQueueP95Ms=${profile.clientQueueP95Nanos / 1_000_000} " +
+                            "binderP95Ms=${profile.binderAndMarshallingP95Nanos / 1_000_000} " +
+                            "feedMs=${profile.audioFeedNanos / 1_000_000} decodeCombinedMs=${profile.combinedDecodeNanos / 1_000_000} " +
+                            "resultMs=${profile.resultNanos / 1_000_000} endpointMs=${profile.endpointCheckNanos / 1_000_000} " +
+                            "graphBreakdown=${profile.graphBreakdown}") })
             else EngineFactory.create(ctx, info, config.profile.source, "transcribe", ::partial, ::endpoint, config.threads)
             engine = startupBarrier.initialize(WORKER_RECOGNITION) { create() }
             startupReported = true
@@ -186,7 +217,7 @@ class CaptionSession(
                             decodeP50Ms = combinedDecodeStats.p50Nanos / 1_000_000L,
                             decodeP95Ms = combinedDecodeStats.p95Nanos / 1_000_000L,
                             decodeMaxMs = combinedDecodeStats.maxNanos / 1_000_000L) }
-                        trace("asr-finish-complete", details = "decodeCalls=${combinedDecodeStats.calls}")
+                        trace("asr-finish-complete", details = "finalizeMs=$finishMs decodeCalls=${combinedDecodeStats.calls}")
                         break
                     }
                     Thread.sleep(10); continue
@@ -197,13 +228,17 @@ class CaptionSession(
                     checkNotNull(engine).release(); engine = null; engine = create()
                     pcm.take(); lastProvisionalText = ""
                     segmentAudioStartedAtNs = null
+                    segmentPcmStartSample = null
                     CaptionState.discontinuity(generation)
                     val discarded = chunk.samples.size + audioQueue.drain().sumOf { it.samples.size }
                     CaptionState.metrics(generation) { it.copy(droppedAudioMs = it.droppedAudioMs + discarded / 16) }
                     continuity.reset()
                     continue
                 }
-                if (segmentAudioStartedAtNs == null) segmentAudioStartedAtNs = chunk.capturedAtNs
+                if (segmentAudioStartedAtNs == null) {
+                    segmentAudioStartedAtNs = chunk.capturedAtNs
+                    segmentPcmStartSample = chunk.firstSample
+                }
                 pcm.append(chunk.samples)
                 val startNs = nowNs()
                 inferenceBusy.set(true)
@@ -259,14 +294,22 @@ class CaptionSession(
     }
     private fun endpoint(text: String) {
         val audio = pcm.take()
-        if (lifecycle.isCancelled() || text.isBlank()) return
+        val sourceStartSample = segmentPcmStartSample
+        val sourceEndSample = audio?.let { sourceStartSample?.plus(it.size) }
+        segmentPcmStartSample = null
+        if (lifecycle.isCancelled()) { audio?.fill(0f); return }
+        if (text.isBlank()) { audio?.fill(0f); segmentAudioStartedAtNs = null; lastPartialAtNs = null; return }
         val at = now()
         val atNs = nowNs()
         val row = CaptionState.source(generation, text, true, at) ?: return
         val endpointWaitMs = lastPartialAtNs?.let { ((atNs - it) / 1_000_000L).coerceAtLeast(0) }
         lastPartialAtNs = null
         CaptionState.metrics(generation) { it.copy(endpointWaitMs = endpointWaitMs) }
-        trace("asr-endpoint", row.key, details = "atNs=$atNs endpointWaitMs=${endpointWaitMs ?: -1}")
+        val sampleRange = if (sourceStartSample != null && sourceEndSample != null)
+            "[$sourceStartSample,$sourceEndSample)" else "unavailable"
+        val segmentHash = audio?.let(::pcm16Sha256) ?: "unavailable"
+        trace("asr-endpoint", row.key, details = "atNs=$atNs endpointWaitMs=${endpointWaitMs ?: -1} " +
+            "sampleRateHz=${AudioCapture.SAMPLE_RATE} sourceSamples=$sampleRange pcm16Sha256=$segmentHash")
         lastProvisionalText = ""
         // Endpoints use Hy once; OPUS is only a live-prefix A/B translator.
         val request = TranslationRequest(row.key, row.source,
@@ -279,8 +322,10 @@ class CaptionSession(
                 correctionBusy.get() || activeFinalEndpoint != null, correctionRtf) &&
             correctionBusy.compareAndSet(false, true)
         if (admitted) {
-            trace("correction-queued", row.key, request.requestId, "queuedAtNs=$atNs")
-            val dropped = correctionQueue.offer(CorrectionRequest(request, audio!!, atNs))
+            trace("correction-queued", row.key, request.requestId,
+                "queuedAtNs=$atNs sampleRateHz=${AudioCapture.SAMPLE_RATE} sourceSamples=$sampleRange pcm16Sha256=$segmentHash")
+            val dropped = correctionQueue.offer(CorrectionRequest(request, audio!!, atNs,
+                sourceStartSample ?: -1L, sourceEndSample ?: -1L))
             if (dropped != null) {
                 dropped.samples.fill(0f)
                 correctionBusy.set(false)
@@ -484,7 +529,7 @@ class CaptionSession(
         val estimatedFiles = modelIds.sumOf { id ->
             ModelStore.dir(ctx, id).walkTopDown().filter { it.isFile }.sumOf { it.length() }
         }
-        CaptionState.metrics(generation) { it.copy(estimatedModelsKb = estimatedFiles / 1024) }
+        CaptionState.metrics(generation) { it.copy(modelFilesDiskKb = estimatedFiles / 1024) }
         val maxModelBudget = 11L * 1024 * 1024 * 1024
         if (estimatedFiles > maxModelBudget)
             error("Selected resident models exceed the 11 GiB Max Quality budget")
@@ -587,7 +632,9 @@ class CaptionSession(
                     if (isCaptionResult && !accepted)
                         rejectRequest(request, "caption portion incompatible before Hy result could publish", computedResult = true)
                     trace(if (accepted) "hy-displayed-to-state" else "hy-result-computed", outputKey,
-                        request.requestId, "computeMs=$elapsed displayMs=$displayMs")
+                        request.requestId, "computeMs=$elapsed displayMs=$displayMs final=$isFinal accepted=$accepted " +
+                            "inputTokens=${timings.inputTokens} outputTokens=${timings.outputTokens} " +
+                            "firstVisibleMs=${timings.firstVisibleMs} completeMs=${timings.completeMs}")
                     CaptionState.metrics(generation) { m -> m.copy(translationMs = elapsed,
                         hyComputeMs = elapsed, hyDisplayMs = displayMs, hyWaitMs = queueWaitMs,
                         translationPrefillMs = timings.prefillMs, translationDecodeMs = timings.decodeMs,

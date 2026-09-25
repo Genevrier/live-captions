@@ -5,13 +5,20 @@ import android.os.*
 import com.asr.live.model.*
 import com.asr.live.pipeline.BackendPolicy
 import java.util.concurrent.*
+import java.util.concurrent.atomic.AtomicLong
+import java.util.concurrent.atomic.AtomicReference
 
 /** Bounded synchronous RPC keeps ASR backpressure in the parent audio queue.
  * A native crash, timeout, unsupported device or initialization failure selects CPU. */
 class QnnEngine(private val ctx: Context, private val language: String, private val threads: Int,
                 private val onPartial: (String) -> Unit, private val onFinal: (String) -> Unit,
-                private val onBackend: (String) -> Unit, private val onGap: () -> Unit) : AsrEngine {
+                private val onBackend: (String) -> Unit, private val onGap: () -> Unit,
+                private val sessionId: Long = 0L,
+                private val onProfile: (QnnProfileStats) -> Unit = {}) : AsrEngine {
     @Volatile private var remoteDecodeStats = AsrDecodeStats()
+    private val qnnProfileTelemetry = QnnProfileTelemetry()
+    override val pipelineStats: AsrPipelineStats get() = cpu?.pipelineStats ?: remotePipelineStats.get()
+    private val remotePipelineStats = AtomicReference(AsrPipelineStats())
     private val decodeStatsAccumulator = DecodeStatsAccumulator()
     override val decodeStats: AsrDecodeStats get() = decodeStatsAccumulator.snapshot(cpu?.decodeStats ?: remoteDecodeStats)
     @Volatile private var remote: IQnnRecognizer? = null
@@ -35,14 +42,37 @@ class QnnEngine(private val ctx: Context, private val language: String, private 
             bound = ctx.bindService(Intent(ctx, QnnService::class.java), connection, Context.BIND_AUTO_CREATE)
             check(bound && connected.await(10, TimeUnit.SECONDS)) { "QNN process connection timed out" }
             remotePid = call(2) { it.pid() }
-            call(40) { it.initialize(ModelStore.dir(ctx, ModelCatalog.NEMOTRON_QNN.id).absolutePath, language, threads) }
+            val initialized = call(40) { it.initialize(ModelStore.dir(ctx, ModelCatalog.NEMOTRON_QNN.id).absolutePath,
+                language, threads, sessionId) }
+            qnnProfileTelemetry.recordInitialization(initialized)
+            onProfile(qnnProfileTelemetry.snapshot())
             // Do not claim active NPU until the first actual decoder call succeeds.
             onBackend("QNN initializing · experimental")
         } catch (t: Exception) { fallback(t) }
     }
-    private fun <T> call(seconds: Long, fn: (IQnnRecognizer) -> T): T {
-        val future = rpc.submit<T> { fn(checkNotNull(remote) { "QNN process unavailable" }) }
-        return try { future.get(seconds, TimeUnit.SECONDS) }
+    private fun <T> call(seconds: Long, dataPlane: Boolean = false, fn: (IQnnRecognizer) -> T): T {
+        val queuedAtNs = System.nanoTime()
+        val startedAtNs = AtomicLong(0L)
+        val future = rpc.submit<T> {
+            startedAtNs.set(System.nanoTime())
+            fn(checkNotNull(remote) { "QNN process unavailable" })
+        }
+        return try {
+            val result = future.get(seconds, TimeUnit.SECONDS)
+            val finishedAtNs = System.nanoTime()
+            if (dataPlane && result is Bundle) {
+                val rpcServiceNs = result.getLong("qnn_service_ns")
+                qnnProfileTelemetry.recordDataCall(
+                    startedAtNs.get() - queuedAtNs, finishedAtNs - queuedAtNs, rpcServiceNs, result)
+                updateDecodeStats(result)
+                remotePipelineStats.set(AsrPipelineStats(
+                    audioFeedNanos = result.getLong("asr_audio_feed_ns"),
+                    resultNanos = result.getLong("asr_result_ns"),
+                    endpointCheckNanos = result.getLong("asr_endpoint_check_ns")))
+                onProfile(qnnProfileTelemetry.snapshot(remoteDecodeStats.totalNanos))
+            }
+            result
+        }
         catch (t: Exception) { future.cancel(true); throw t }
     }
     private fun disconnect() {
@@ -61,17 +91,15 @@ class QnnEngine(private val ctx: Context, private val language: String, private 
     override fun accept(samples: FloatArray) {
         cpu?.let { it.accept(samples); return }
         try {
-            val result = call(5) { it.accept(samples) }
+            val result = call(5, dataPlane = true) { it.accept(samples) }
             onBackend("QNN/NPU · experimental")
-            updateDecodeStats(result)
             dispatch(result)
         } catch (t: Exception) { onGap(); fallback(t); cpu!!.accept(samples) }
     }
     override fun finish() {
         cpu?.let { it.finish(); return }
         try {
-            val result = call(10) { it.finish() }
-            updateDecodeStats(result)
+            val result = call(10, dataPlane = true) { it.finish() }
             dispatch(result)
         } catch (t: Exception) {
             onGap()
