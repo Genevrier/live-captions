@@ -1,0 +1,137 @@
+{
+  "runs": [
+    {
+      "run": 1,
+      "load_ms": 1059.571152,
+      "warm_ms": 0.448675,
+      "elapsed_ms": 5529.983595,
+      "utterances": 10,
+      "mean_wer": 0.14593919679308673,
+      "mean_rtf": 0.05700256804710835
+    },
+    {
+      "run": 2,
+      "load_ms": 840.50935,
+      "warm_ms": 0.433827,
+      "elapsed_ms": 5212.807162,
+      "utterances": 10,
+      "mean_wer": 0.14593919679308673,
+      "mean_rtf": 0.053690692892011505
+    },
+    {
+      "run": 3,
+      "load_ms": 813.833505,
+      "warm_ms": 0.437395,
+      "elapsed_ms": 5443.261711,
+      "utterances": 10,
+      "mean_wer": 0.14593919679308673,
+      "mean_rtf": 0.056202855435608524
+    }
+  ],
+  "utterances": 30,
+  "audio_minutes": 4.911,
+  "asr_wer": 0.17272727272727273,
+  "asr_cer": 0.09719934102141681,
+  "word_error_counts": {
+    "substitutions": 93,
+    "deletions": 9,
+    "insertions": 12,
+    "reference_words": 660
+  },
+  "literal_number_error_count": 18,
+  "literal_number_reference_count": 18,
+  "literal_number_exact_rate": 0.0,
+  "named_entity_metric": null,
+  "named_entity_metric_note": "No independently annotated named-entity labels are included in the frozen FLEURS sample.",
+  "technical_terminology_metric": null,
+  "technical_terminology_metric_note": "No independently annotated technical-term labels or in-domain audio are included.",
+  "processing_ms": {
+    "n": 30,
+    "mean": 527.7558528666666,
+    "p50": 527.5541185,
+    "p90": 689.9967673000002,
+    "p95": 805.2510529,
+    "p99": 830.55912649,
+    "max": 835.227436,
+    "stddev": 151.88031147590272
+  },
+  "rtf": {
+    "n": 30,
+    "mean": 0.055632038791576126,
+    "p50": 0.053471241374543774,
+    "p90": 0.06834763788741136,
+    "p95": 0.07048181031604608,
+    "p99": 0.07272447685992908,
+    "max": 0.07298556524822696,
+    "stddev": 0.007718249787774802
+  },
+  "endpoint_delay_ms": {
+    "n": null,
+    "mean": null,
+    "p50": null,
+    "p90": null,
+    "p95": null,
+    "p99": null,
+    "max": null,
+    "stddev": null
+  },
+  "speech_end_to_asr_final_ms": {
+    "n": null,
+    "mean": null,
+    "p50": null,
+    "p90": null,
+    "p95": null,
+    "p99": null,
+    "max": null,
+    "stddev": null
+  },
+  "first_partial_latency_ms": {
+    "n": null,
+    "mean": null,
+    "p50": null,
+    "p90": null,
+    "p95": null,
+    "p99": null,
+    "max": null,
+    "stddev": null
+  },
+  "stable_source_latency_ms": {
+    "n": null,
+    "mean": null,
+    "p50": null,
+    "p90": null,
+    "p95": null,
+    "p99": null,
+    "max": null,
+    "stddev": null
+  },
+  "first_partial_processing_ms": {
+    "n": 30,
+    "mean": 106.63563583333332,
+    "p50": 101.266087,
+    "p90": 156.26455600000006,
+    "p95": 195.9252282,
+    "p99": 202.64346723,
+    "max": 203.456805,
+    "stddev": 41.11103236164618
+  },
+  "stable_source_processing_ms": {
+    "n": 30,
+    "mean": 163.28128223333334,
+    "p50": 154.44167249999998,
+    "p90": 209.42647750000006,
+    "p95": 247.11531464999996,
+    "p99": 255.25657541,
+    "max": 256.270117,
+    "stddev": 42.944539028324485
+  },
+  "partial_revisions_per_utterance": 6.5,
+  "rewritten_visible_words_per_utterance": 2.3,
+  "stable_prefix_revisions_per_utterance": 0.0,
+  "final_correction_word_distance_per_utterance": 0.0,
+  "hy_provisional_request_candidates_per_utterance": 1.0,
+  "hy_final_request_candidates_per_utterance": 1.1,
+  "translation_latency": "not measured here; use the same pinned native C++ Hy benchmark",
+  "queue_depth": "not measured here; host runner does not instantiate CaptionSession",
+  "temperature": "host sensor values only; no Honor device connected"
+}

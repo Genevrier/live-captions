@@ -34,6 +34,10 @@ examples (tuning), 10 validation examples, and 10 official test examples
 parallel transcripts provide independent translation references. The known
 prior smoke-test row 1927 is excluded from hold-out. Audio files are converted
 to mono 16 kHz s16le WAV and checked into the generated manifest by hash.
+The frozen selection/reference manifest is checked into
+`benchmark_results/fleurs_manifest.json`. FLEURS is marked CC-BY-4.0 in its
+source manifest; attribute the dataset to Google Research when reusing those
+references. Audio shards stay out of Git and are re-fetched by revision.
 
 The requested video is a separate Dutch robustness corpus:
 
@@ -46,11 +50,13 @@ subtitle tracks (requesting Dutch/English first), and records download failures,
 provenance, and file hashes. This video's only retrieved Dutch captions are
 automatic speech recognition and must be labelled **PSEUDO-GROUND-TRUTH**; they
 are not a primary WER reference. YouTube currently rate-limits some tracks with
-HTTP 429; the manifest records the incomplete track download.
+HTTP 429; the frozen source manifest is
+`benchmark_results/robustness/youtube_source_manifest.json` and records which
+tracks were attempted and retrieved.
 
-After fetch, make a single full-video robustness case and run it only after
-selecting tuning parameters. It is intentionally separate from all FLEURS
-splits and must not be used to claim true WER or tune a model:
+After fetch, make a single full-video robustness case. It is intentionally
+separate from all FLEURS splits and must not be used to claim true WER or tune
+a model:
 
 ```sh
 python scripts/benchmark/prepare_youtube_robustness.py
@@ -81,6 +87,7 @@ python scripts/benchmark/run_asr.py \
   --chunk-ms 560 --threads 6 --rule1-seconds 2.4 --rule2-seconds 1.4
 
 python scripts/benchmark/run_asr_sweep.py --out benchmark_results/postfix/sweep
+python scripts/benchmark/summarize_asr_sweep.py
 ```
 
 Max-speed mode reports processing time and RTF; its wall clock is deliberately
@@ -91,25 +98,29 @@ human-annotated phonetic boundary, so endpoint latency is approximate. A
 translation/caption latency is not inferred from ASR-only timing.
 
 The upstream export set has separate CPU graphs at 80, 160, 320, 560 and
-1120 ms; chunk size is never a runtime scalar. The app only exposes the four
-profiles already present in its catalog. The sweep changes one parameter
+1120 ms; chunk size is never a runtime scalar. The app exposes 160, 320, 560
+and 1120 ms; 80 ms is a host-only graph probe. The sweep changes one parameter
 family at a time, writes a per-run experiment index, and never reads validation
-or final hold-out samples. Run validation only after a tuning candidate is
-chosen:
+or final hold-out samples. The versioned error/latency thresholds are in
+`benchmark_policy.json`. Run validation only after a tuning candidate is
+chosen, then create a keep/reject and tuning-Pareto summary:
 
 ```sh
 python scripts/benchmark/run_asr.py --out benchmark_results/validation/<candidate> \
   --split validation --allow-validation --runs 3 \
-  --chunk-ms 1120 --threads 6 --rule1-seconds 2.4 --rule2-seconds 1.4
+  --chunk-ms 560 --threads 6 --rule1-seconds 2.4 --rule2-seconds 1.4 --language nl-NL
+
+python scripts/benchmark/summarize_asr_sweep.py
 ```
 
 Do not run final hold-out until the configuration is locked. It is an explicit,
 single attempt; the runner creates a lock marker under the generated data root:
 
 ```sh
-python scripts/benchmark/run_asr.py --out benchmark_results/final_holdout \
+python scripts/benchmark/run_asr.py --out benchmark_results/final_holdout/asr-560 \
   --split final_holdout --allow-final-holdout --runs 1 \
-  --chunk-ms 1120 --threads 6 --rule1-seconds 2.4 --rule2-seconds 1.4
+  --mode maxspeed --chunk-ms 560 --threads 6 --rule1-seconds 2.4 \
+  --rule2-seconds 1.4 --language nl-NL
 ```
 
 ## Translation benchmark
@@ -125,7 +136,10 @@ cmake --build build/native-benchmark --target translation-benchmark -j2
 ```
 
 Run Hy-MT2 7B Q4_K_M against OPUS-MT Dutch→English on identical run-1
-Nemotron hypotheses from the tuning split:
+Nemotron hypotheses from the tuning split. The runner accepts other exact
+quantization bundle IDs from `translation-models.json` for a controlled
+screen; Q5/Q6 were screened on the tuning split, and Q4 remained the selected
+translation candidate:
 
 ```sh
 python scripts/benchmark/run_translation.py --mode hy \
@@ -134,6 +148,13 @@ python scripts/benchmark/run_translation.py --mode hy \
 python scripts/benchmark/run_translation.py --mode opus \
   --binary build/native-benchmark/translation-benchmark \
   --out benchmark_results/translation/opus
+
+python scripts/benchmark/run_translation.py --mode hy \
+  --bundle hymt2-7b-Q6_K --runs 1 \
+  --binary build/native-benchmark/translation-benchmark \
+  --out benchmark_results/translation/hy-q6-screen
+
+python scripts/benchmark/summarize_translation.py
 ```
 
 Every model file is downloaded to ignored `build/`, checked against the pinned
@@ -153,3 +174,28 @@ Adreno execution, Android audio queue behavior, device thermals, sustained
 15–30 minute operation, or offline behavior on the phone. Those require the
 physical device and its runtime logs. No host result is presented as a Magic V5
 measurement.
+
+## Final hold-out
+
+Lock the choice after tuning and validation, then run the final split once.
+This repository's selected ASR is 560 ms / `nl-NL` / six threads with the
+default endpoint rules; final Hy translation uses Q4_K_M. Do not make tuning
+changes from these results:
+
+```sh
+python scripts/benchmark/run_asr.py --out benchmark_results/final_holdout/asr-560 \
+  --split final_holdout --allow-final-holdout --runs 1 --mode maxspeed \
+  --chunk-ms 560 --threads 6 --rule1-seconds 2.4 --rule2-seconds 1.4 --language nl-NL
+
+python scripts/benchmark/run_translation.py --mode hy \
+  --bundle hymt2-7b-Q4_K_M --split final_holdout \
+  --allow-final-holdout --runs 1 \
+  --asr-csv benchmark_results/final_holdout/asr-560/utterances.csv \
+  --binary build/native-benchmark/translation-benchmark \
+  --out benchmark_results/final_holdout/hy-q4
+```
+
+The final ASR and translation metrics, split/reference manifest, and one-time
+hold-out marker are retained in `benchmark_results/`. Full audio shards and
+model weights stay out of Git under ignored `build/benchmark-data/` and
+`build/benchmark-models/`; the YouTube audio/VTT copies also remain local there.

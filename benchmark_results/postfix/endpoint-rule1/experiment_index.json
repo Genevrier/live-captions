@@ -1,0 +1,215 @@
+{
+  "split": "tuning",
+  "runs_per_configuration": 3,
+  "decision_policy": "Tune on FLEURS train only; review accuracy/latency/instability jointly; no scalar score.",
+  "experiments": [
+    {
+      "id": "endpoint-560-r1-0p9-r2-0p7",
+      "parent": "experiments/chunk-560",
+      "changed": {
+        "rule1_seconds": 0.9,
+        "rule2_seconds": 0.7
+      },
+      "chunk": 560,
+      "threads": 6,
+      "rule1": 0.9,
+      "rule2": 0.7,
+      "language": "nl-NL",
+      "metrics_before": "see parent configuration's metrics.json",
+      "metrics_after": {
+        "asr_wer": 0.16211878009630817,
+        "asr_cer": 0.07024303497332543,
+        "rtf": {
+          "n": 90,
+          "mean": 0.07735904890240473,
+          "p50": 0.07717531691595442,
+          "p90": 0.08336197981277746,
+          "p95": 0.08487401177259887,
+          "p99": 0.09887376034047618,
+          "max": 0.09977762166666666,
+          "stddev": 0.005528156581655112
+        },
+        "processing_ms": {
+          "n": 90,
+          "mean": 763.1303329555556,
+          "p50": 757.5904129999999,
+          "p90": 1033.304731,
+          "p95": 1083.55169975,
+          "p99": 1086.26812062,
+          "max": 1087.160561,
+          "stddev": 194.0498885151855
+        },
+        "stable_source_latency_ms": {
+          "n": null,
+          "mean": null,
+          "p50": null,
+          "p90": null,
+          "p95": null,
+          "p99": null,
+          "max": null,
+          "stddev": null
+        },
+        "partial_revisions_per_utterance": 12.0,
+        "rewritten_visible_words_per_utterance": 4.3
+      },
+      "decision": "pending validation; keep/reject is recorded in BENCHMARK_REPORT.md",
+      "output": "benchmark_results/postfix/endpoint-rule1/endpoint-560-r1-0p9-r2-0p7"
+    },
+    {
+      "id": "endpoint-560-r1-0p7-r2-0p4",
+      "parent": "experiments/chunk-560",
+      "changed": {
+        "rule1_seconds": 0.7,
+        "rule2_seconds": 0.4
+      },
+      "chunk": 560,
+      "threads": 6,
+      "rule1": 0.7,
+      "rule2": 0.4,
+      "language": "nl-NL",
+      "metrics_before": "see parent configuration's metrics.json",
+      "metrics_after": {
+        "asr_wer": 0.19101123595505617,
+        "asr_cer": 0.0939537640782454,
+        "rtf": {
+          "n": 90,
+          "mean": 0.0754639489163517,
+          "p50": 0.07472237504381418,
+          "p90": 0.07954773977917999,
+          "p95": 0.08338321821503974,
+          "p99": 0.08909926945714286,
+          "max": 0.09113636333333333,
+          "stddev": 0.004101300661927657
+        },
+        "processing_ms": {
+          "n": 90,
+          "mean": 750.5859834888888,
+          "p50": 749.8402365,
+          "p90": 1029.3904487,
+          "p95": 1060.45410665,
+          "p99": 1108.4617605800001,
+          "max": 1110.411731,
+          "stddev": 209.2496875540892
+        },
+        "stable_source_latency_ms": {
+          "n": null,
+          "mean": null,
+          "p50": null,
+          "p90": null,
+          "p95": null,
+          "p99": null,
+          "max": null,
+          "stddev": null
+        },
+        "partial_revisions_per_utterance": 10.933333333333334,
+        "rewritten_visible_words_per_utterance": 3.466666666666667
+      },
+      "decision": "pending validation; keep/reject is recorded in BENCHMARK_REPORT.md",
+      "output": "benchmark_results/postfix/endpoint-rule1/endpoint-560-r1-0p7-r2-0p4"
+    },
+    {
+      "id": "endpoint-1120-r1-0p9-r2-0p7",
+      "parent": "experiments/chunk-1120",
+      "changed": {
+        "rule1_seconds": 0.9,
+        "rule2_seconds": 0.7
+      },
+      "chunk": 1120,
+      "threads": 6,
+      "rule1": 0.9,
+      "rule2": 0.7,
+      "language": "nl-NL",
+      "metrics_before": "see parent configuration's metrics.json",
+      "metrics_after": {
+        "asr_wer": 0.1653290529695024,
+        "asr_cer": 0.08595139300533491,
+        "rtf": {
+          "n": 90,
+          "mean": 0.04829771252409448,
+          "p50": 0.04678555988673329,
+          "p90": 0.056045543712121206,
+          "p95": 0.05702840199810606,
+          "p99": 0.06385695066190476,
+          "max": 0.06409530071428572,
+          "stddev": 0.004511178142584412
+        },
+        "processing_ms": {
+          "n": 90,
+          "mean": 474.19865344444446,
+          "p50": 465.9065925,
+          "p90": 642.3872286999999,
+          "p95": 646.2204376,
+          "p99": 655.04411577,
+          "max": 656.024368,
+          "stddev": 116.92300683670649
+        },
+        "stable_source_latency_ms": {
+          "n": null,
+          "mean": null,
+          "p50": null,
+          "p90": null,
+          "p95": null,
+          "p99": null,
+          "max": null,
+          "stddev": null
+        },
+        "partial_revisions_per_utterance": 5.733333333333333,
+        "rewritten_visible_words_per_utterance": 1.9333333333333333
+      },
+      "decision": "pending validation; keep/reject is recorded in BENCHMARK_REPORT.md",
+      "output": "benchmark_results/postfix/endpoint-rule1/endpoint-1120-r1-0p9-r2-0p7"
+    },
+    {
+      "id": "endpoint-1120-r1-0p7-r2-0p4",
+      "parent": "experiments/chunk-1120",
+      "changed": {
+        "rule1_seconds": 0.7,
+        "rule2_seconds": 0.4
+      },
+      "chunk": 1120,
+      "threads": 6,
+      "rule1": 0.7,
+      "rule2": 0.4,
+      "language": "nl-NL",
+      "metrics_before": "see parent configuration's metrics.json",
+      "metrics_after": {
+        "asr_wer": 0.2086677367576244,
+        "asr_cer": 0.11529342027267339,
+        "rtf": {
+          "n": 90,
+          "mean": 0.04836174382049564,
+          "p50": 0.047539858478990296,
+          "p90": 0.05072857363668469,
+          "p95": 0.05740086106060606,
+          "p99": 0.06439954075476191,
+          "max": 0.06455612714285715,
+          "stddev": 0.0040197228428616215
+        },
+        "processing_ms": {
+          "n": 90,
+          "mean": 476.6146916,
+          "p50": 471.7186595,
+          "p90": 647.4067445000001,
+          "p95": 660.34669555,
+          "p99": 669.46548238,
+          "max": 670.718476,
+          "stddev": 122.77884064832925
+        },
+        "stable_source_latency_ms": {
+          "n": null,
+          "mean": null,
+          "p50": null,
+          "p90": null,
+          "p95": null,
+          "p99": null,
+          "max": null,
+          "stddev": null
+        },
+        "partial_revisions_per_utterance": 5.033333333333333,
+        "rewritten_visible_words_per_utterance": 1.7333333333333334
+      },
+      "decision": "pending validation; keep/reject is recorded in BENCHMARK_REPORT.md",
+      "output": "benchmark_results/postfix/endpoint-rule1/endpoint-1120-r1-0p7-r2-0p4"
+    }
+  ]
+}

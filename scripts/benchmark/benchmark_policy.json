@@ -1,0 +1,31 @@
+{
+  "version": 1,
+  "asr": {
+    "baseline_validation": "validation-postfix/asr-560-nl-1400",
+    "max_validation_wer_regression": 0.005,
+    "max_validation_cer_regression": 0.005,
+    "minimum_latency_or_accuracy_gain": 0.10,
+    "maximum_rewrite_increase_per_utterance": 0.0,
+    "minimum_measured_runs_for_promotion": 3,
+    "validation_mapping": {
+      "chunk-320": "validation-postfix/asr-320-nl-1400",
+      "chunk-1120": "validation-postfix/asr-1120-nl-1400",
+      "endpoint-1120-0p7": "validation-postfix/asr-1120-nl-0700",
+      "language-560-auto": "validation-postfix/asr-560-auto-1400",
+      "combined-1120-auto-0p7": "validation-postfix/asr-1120-auto-0700"
+    }
+  },
+  "translation": {
+    "minimum_measured_runs_for_default_change": 3,
+    "minimum_reference_metric_gain_points_for_default_change": 1.0,
+    "minimum_latency_gain_for_default_change": 0.10,
+    "maximum_reference_metric_regression_points_for_default_change": 1.0,
+    "quality_metrics": ["chrf_plus_plus", "bleu"],
+    "latency_metric": "translation_latency_ms.p50"
+  },
+  "holdout": {
+    "selection_allowed": false,
+    "runs": 1,
+    "run_only_after_profile_lock": true
+  }
+}

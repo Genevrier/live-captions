@@ -1,0 +1,2 @@
+run,load_ms,warm_ms,elapsed_ms,utterances,mean_wer,mean_rtf
+1,1703.087746,0.769622,47916.379333,1,0.14573643410852713,0.06704679363840628

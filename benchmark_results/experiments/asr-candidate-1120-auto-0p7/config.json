@@ -1,0 +1,29 @@
+{
+  "commit": "6056a27947e15e5196aa6892f1253b76d4f17c74",
+  "model": "Nemotron 3.5 Streaming ASR 0.6B INT8",
+  "chunk_ms": 1120,
+  "model_archive_sha256": "adbdd5e9fef87300c37cebfcfc4f1ebe56845c860c8a760af0a1dd65ce9beed3",
+  "backend": "CPU (sherpa-onnx Python 1.13.8 / ONNX Runtime CPU provider)",
+  "qnn_active": false,
+  "opencl_active": false,
+  "language": "auto",
+  "threads": 6,
+  "sample_rate_hz": 16000,
+  "input_frame_ms": 100,
+  "endpointing": {
+    "enabled": true,
+    "rule1_min_trailing_silence_s": 2.4,
+    "rule2_min_trailing_silence_s": 0.7,
+    "rule3_min_utterance_s": 20.0
+  },
+  "mode": "maxspeed",
+  "runs": 3,
+  "split": "tuning",
+  "dataset_revision": "168de341b3db6859a9bac1c50a2ef5e3b47647e0",
+  "dataset_manifest_sha256": "ef3d75861e68ddfaed8c3d36940da34c5766660bf81034971da0f4218e6b025a",
+  "pipeline_scope": "sherpa model component only; not Android CaptionSession",
+  "source_language": "Dutch (FLEURS nl_nl)",
+  "reference_kind": "parallel FLEURS English transcription",
+  "queue_depth": "not instrumented by this host runner",
+  "warmup": "5 x 100 ms silence fed before timing; model/recognizer loaded once per run"
+}

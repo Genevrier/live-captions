@@ -1,0 +1,37 @@
+{
+  "platform": "Linux-6.17.0-1031-nvidia-aarch64-with-glibc2.39",
+  "machine": "aarch64",
+  "cpu_model": "Cortex-X925 / Cortex-A725",
+  "python": "3.12.3 (main, Jul 15 2026, 23:46:41) [GCC 13.3.0]",
+  "sherpa_onnx": "1.13.8",
+  "available_memory": "MemTotal:       127600812 kB",
+  "load_average_before": [
+    7.1005859375,
+    7.97021484375,
+    6.8349609375
+  ],
+  "thermal_before": {
+    "thermal_zone2:acpitz": "65100",
+    "thermal_zone0:acpitz": "66900",
+    "thermal_zone5:acpitz": "55800",
+    "thermal_zone3:acpitz": "60100",
+    "thermal_zone1:acpitz": "59300",
+    "thermal_zone6:acpitz": "62600",
+    "thermal_zone4:acpitz": "66900"
+  },
+  "process_max_rss_kb": 1105640,
+  "load_average_after": [
+    4.2158203125,
+    6.9248046875,
+    6.546875
+  ],
+  "thermal_after": {
+    "thermal_zone2:acpitz": "61900",
+    "thermal_zone0:acpitz": "62100",
+    "thermal_zone5:acpitz": "49800",
+    "thermal_zone3:acpitz": "51700",
+    "thermal_zone1:acpitz": "51700",
+    "thermal_zone6:acpitz": "51800",
+    "thermal_zone4:acpitz": "62100"
+  }
+}

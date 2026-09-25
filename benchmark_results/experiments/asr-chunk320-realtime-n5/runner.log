@@ -1,0 +1,4 @@
+run 1/3: 5/5 utterances
+run 2/3: 5/5 utterances
+run 3/3: 5/5 utterances
+{"out": "benchmark_results/experiments/asr-chunk320-realtime-n5", "wer": 0.12857142857142856, "cer": 0.031073446327683617, "mean_rtf": 0.18374548524548698, "run_count": 3}

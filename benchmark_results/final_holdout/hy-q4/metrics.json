@@ -1,0 +1,102 @@
+{
+  "runs": [
+    {
+      "run": 1,
+      "wall_ms_including_model_load": 65572.84143310972,
+      "translation_ms": {
+        "n": 10,
+        "mean": 6265.3240000000005,
+        "p50": 6466.6849999999995,
+        "p90": 7602.9351,
+        "p95": 7663.45155,
+        "p99": 7711.86471,
+        "max": 7723.968,
+        "stddev": 1271.18225125251
+      },
+      "translation_rtf": {
+        "n": 10,
+        "mean": 0.6814290853110052,
+        "p50": 0.6599880952380952,
+        "p90": 0.8393974682136046,
+        "p95": 0.8524689264144946,
+        "p99": 0.8629260929752066,
+        "max": 0.8655403846153846,
+        "stddev": 0.10489881142232517
+      }
+    }
+  ],
+  "utterances": 10,
+  "translation_latency_ms": {
+    "n": 10,
+    "mean": 6265.3240000000005,
+    "p50": 6466.6849999999995,
+    "p90": 7602.9351,
+    "p95": 7663.45155,
+    "p99": 7711.86471,
+    "max": 7723.968,
+    "stddev": 1271.18225125251
+  },
+  "translation_rtf": {
+    "n": 10,
+    "mean": 0.6814290853110052,
+    "p50": 0.6599880952380952,
+    "p90": 0.8393974682136046,
+    "p95": 0.8524689264144946,
+    "p99": 0.8629260929752066,
+    "max": 0.8655403846153846,
+    "stddev": 0.10489881142232517
+  },
+  "chrf_plus_plus": 58.36017415877745,
+  "bleu": 30.028477538981882,
+  "quality_caveat": "FLEURS parallel English text is a useful reference, not a professional evaluation of every ASR-conditioned output; scores are approximate.",
+  "hy_prefill_ms": {
+    "n": 10,
+    "mean": 3863.3,
+    "p50": 4032.0,
+    "p90": 4493.3,
+    "p95": 4521.65,
+    "p99": 4544.33,
+    "max": 4550.0,
+    "stddev": 651.2931828293615
+  },
+  "hy_decode_ms": {
+    "n": 10,
+    "mean": 2396.2,
+    "p50": 2426.0,
+    "p90": 3178.9,
+    "p95": 3227.95,
+    "p99": 3267.19,
+    "max": 3277.0,
+    "stddev": 663.2800012061272
+  },
+  "hy_first_token_ms": {
+    "n": 10,
+    "mean": 3868.3,
+    "p50": 4037.0,
+    "p90": 4498.3,
+    "p95": 4526.65,
+    "p99": 4549.33,
+    "max": 4555.0,
+    "stddev": 651.2931828293615
+  },
+  "hy_tokens_per_second": {
+    "n": 10,
+    "mean": 11.6255795750114,
+    "p50": 11.610222091852226,
+    "p90": 12.134137379519888,
+    "p95": 12.162231882838984,
+    "p99": 12.184707485494261,
+    "max": 12.19032638615808,
+    "stddev": 0.4228683318161216
+  },
+  "process_max_rss_kb": 4855608,
+  "literal_number_reference_sentences": 0,
+  "literal_number_exact_match_rate": null,
+  "literal_number_metric_note": "Exact digit-string rendering only; no reference contains a number written out as words.",
+  "named_entity_metric": null,
+  "named_entity_metric_note": "FLEURS samples have no independent named-entity annotations.",
+  "technical_terminology_metric": null,
+  "technical_terminology_metric_note": "No in-domain technical audio or independently annotated glossary is present.",
+  "end_to_end_caption_latency_ms": null,
+  "opus_token_count": "not exposed by the current OPUS native engine; total completion latency is measured"
+}

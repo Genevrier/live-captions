@@ -82,6 +82,7 @@ def literal_numbers(text: str) -> list[str]:
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--mode", choices=("hy", "opus"), required=True)
+    parser.add_argument("--bundle", help="Pinned translation bundle ID; defaults to Hy 7B Q4_K_M or Dutch→English OPUS")
     parser.add_argument("--split", choices=("tuning", "validation", "final_holdout"), default="tuning")
     parser.add_argument("--allow-final-holdout", action="store_true")
     parser.add_argument("--manifest", type=Path, default=Path("build/benchmark-data/manifest.json"))
@@ -133,7 +134,11 @@ def main() -> None:
     (args.out / "cases.jsonl").write_text("".join(json.dumps(case, ensure_ascii=False) + "\n" for case in cases))
 
     lock = json.loads(Path("app/src/main/assets/translation-models.json").read_text())
-    bundle_id = "hymt2-7b-Q4_K_M" if args.mode == "hy" else "opus-nl-en"
+    bundle_id = args.bundle or ("hymt2-7b-Q4_K_M" if args.mode == "hy" else "opus-nl-en")
+    if args.mode == "hy" and not bundle_id.startswith("hymt2-7b-"):
+        raise SystemExit("Hy mode requires a pinned Hy-MT2 7B GGUF bundle")
+    if args.mode == "opus" and bundle_id != "opus-nl-en":
+        raise SystemExit("This runner supports only the Dutch→English OPUS bundle")
     bundle = next(item for item in lock["bundles"] if item["id"] == bundle_id)
     model_dir = ensure_bundle(args.model_root, bundle)
     model_arg = str(model_dir / "model.gguf") if args.mode == "hy" else str(model_dir)

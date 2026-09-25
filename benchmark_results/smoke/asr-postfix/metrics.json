@@ -1,0 +1,112 @@
+{
+  "runs": [
+    {
+      "run": 1,
+      "load_ms": 1072.251831,
+      "warm_ms": 0.451507,
+      "elapsed_ms": 451.987355,
+      "utterances": 1,
+      "mean_wer": 0.375,
+      "mean_rtf": 0.10592844142857143
+    }
+  ],
+  "utterances": 1,
+  "audio_minutes": 0.07,
+  "asr_wer": 0.375,
+  "asr_cer": 0.13636363636363635,
+  "word_error_counts": {
+    "substitutions": 1,
+    "deletions": 0,
+    "insertions": 2,
+    "reference_words": 8
+  },
+  "processing_ms": {
+    "n": 1,
+    "mean": 444.899454,
+    "p50": 444.899454,
+    "p90": 444.899454,
+    "p95": 444.899454,
+    "p99": 444.899454,
+    "max": 444.899454,
+    "stddev": 0.0
+  },
+  "rtf": {
+    "n": 1,
+    "mean": 0.10592844142857143,
+    "p50": 0.10592844142857143,
+    "p90": 0.10592844142857143,
+    "p95": 0.10592844142857143,
+    "p99": 0.10592844142857143,
+    "max": 0.10592844142857143,
+    "stddev": 0.0
+  },
+  "endpoint_delay_ms": {
+    "n": null,
+    "mean": null,
+    "p50": null,
+    "p90": null,
+    "p95": null,
+    "p99": null,
+    "max": null,
+    "stddev": null
+  },
+  "speech_end_to_asr_final_ms": {
+    "n": null,
+    "mean": null,
+    "p50": null,
+    "p90": null,
+    "p95": null,
+    "p99": null,
+    "max": null,
+    "stddev": null
+  },
+  "first_partial_latency_ms": {
+    "n": null,
+    "mean": null,
+    "p50": null,
+    "p90": null,
+    "p95": null,
+    "p99": null,
+    "max": null,
+    "stddev": null
+  },
+  "stable_source_latency_ms": {
+    "n": null,
+    "mean": null,
+    "p50": null,
+    "p90": null,
+    "p95": null,
+    "p99": null,
+    "max": null,
+    "stddev": null
+  },
+  "first_partial_processing_ms": {
+    "n": 1,
+    "mean": 172.708571,
+    "p50": 172.708571,
+    "p90": 172.708571,
+    "p95": 172.708571,
+    "p99": 172.708571,
+    "max": 172.708571,
+    "stddev": 0.0
+  },
+  "stable_source_processing_ms": {
+    "n": 1,
+    "mean": 212.392753,
+    "p50": 212.392753,
+    "p90": 212.392753,
+    "p95": 212.392753,
+    "p99": 212.392753,
+    "max": 212.392753,
+    "stddev": 0.0
+  },
+  "partial_revisions_per_utterance": 4.0,
+  "rewritten_visible_words_per_utterance": 2.0,
+  "stable_prefix_revisions_per_utterance": 0.0,
+  "final_correction_word_distance_per_utterance": 0.0,
+  "hy_provisional_request_candidates_per_utterance": 1.0,
+  "hy_final_request_candidates_per_utterance": 1.0,
+  "translation_latency": "not measured here; use the same pinned native C++ Hy benchmark",
+  "queue_depth": "not measured here; host runner does not instantiate CaptionSession",
+  "temperature": "host sensor values only; no Honor device connected"
+}

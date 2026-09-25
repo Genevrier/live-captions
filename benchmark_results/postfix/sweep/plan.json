@@ -1,0 +1,208 @@
+[
+  {
+    "id": "chunk-80",
+    "parent": "benchmark_results/baseline/asr-maxspeed-clean",
+    "changed": {
+      "chunk_ms": 80
+    },
+    "chunk": 80,
+    "threads": 6,
+    "rule1": 2.4,
+    "rule2": 1.4,
+    "language": "nl-NL"
+  },
+  {
+    "id": "chunk-160",
+    "parent": "benchmark_results/baseline/asr-maxspeed-clean",
+    "changed": {
+      "chunk_ms": 160
+    },
+    "chunk": 160,
+    "threads": 6,
+    "rule1": 2.4,
+    "rule2": 1.4,
+    "language": "nl-NL"
+  },
+  {
+    "id": "chunk-320",
+    "parent": "benchmark_results/baseline/asr-maxspeed-clean",
+    "changed": {
+      "chunk_ms": 320
+    },
+    "chunk": 320,
+    "threads": 6,
+    "rule1": 2.4,
+    "rule2": 1.4,
+    "language": "nl-NL"
+  },
+  {
+    "id": "chunk-560",
+    "parent": "benchmark_results/baseline/asr-maxspeed-clean",
+    "changed": {
+      "chunk_ms": 560
+    },
+    "chunk": 560,
+    "threads": 6,
+    "rule1": 2.4,
+    "rule2": 1.4,
+    "language": "nl-NL"
+  },
+  {
+    "id": "chunk-1120",
+    "parent": "benchmark_results/baseline/asr-maxspeed-clean",
+    "changed": {
+      "chunk_ms": 1120
+    },
+    "chunk": 1120,
+    "threads": 6,
+    "rule1": 2.4,
+    "rule2": 1.4,
+    "language": "nl-NL"
+  },
+  {
+    "id": "threads-1120-2",
+    "parent": "benchmark_results/postfix/sweep/chunk-1120",
+    "changed": {
+      "threads": 2
+    },
+    "chunk": 1120,
+    "threads": 2,
+    "rule1": 2.4,
+    "rule2": 1.4,
+    "language": "nl-NL"
+  },
+  {
+    "id": "threads-1120-4",
+    "parent": "benchmark_results/postfix/sweep/chunk-1120",
+    "changed": {
+      "threads": 4
+    },
+    "chunk": 1120,
+    "threads": 4,
+    "rule1": 2.4,
+    "rule2": 1.4,
+    "language": "nl-NL"
+  },
+  {
+    "id": "threads-1120-8",
+    "parent": "benchmark_results/postfix/sweep/chunk-1120",
+    "changed": {
+      "threads": 8
+    },
+    "chunk": 1120,
+    "threads": 8,
+    "rule1": 2.4,
+    "rule2": 1.4,
+    "language": "nl-NL"
+  },
+  {
+    "id": "threads-560-2",
+    "parent": "benchmark_results/baseline/asr-maxspeed-clean",
+    "changed": {
+      "threads": 2
+    },
+    "chunk": 560,
+    "threads": 2,
+    "rule1": 2.4,
+    "rule2": 1.4,
+    "language": "nl-NL"
+  },
+  {
+    "id": "threads-560-4",
+    "parent": "benchmark_results/baseline/asr-maxspeed-clean",
+    "changed": {
+      "threads": 4
+    },
+    "chunk": 560,
+    "threads": 4,
+    "rule1": 2.4,
+    "rule2": 1.4,
+    "language": "nl-NL"
+  },
+  {
+    "id": "threads-560-8",
+    "parent": "benchmark_results/baseline/asr-maxspeed-clean",
+    "changed": {
+      "threads": 8
+    },
+    "chunk": 560,
+    "threads": 8,
+    "rule1": 2.4,
+    "rule2": 1.4,
+    "language": "nl-NL"
+  },
+  {
+    "id": "endpoint-560-0p4",
+    "parent": "benchmark_results/baseline/asr-maxspeed-clean",
+    "changed": {
+      "rule2_seconds": 0.4
+    },
+    "chunk": 560,
+    "threads": 6,
+    "rule1": 2.4,
+    "rule2": 0.4,
+    "language": "nl-NL"
+  },
+  {
+    "id": "endpoint-560-0p7",
+    "parent": "benchmark_results/baseline/asr-maxspeed-clean",
+    "changed": {
+      "rule2_seconds": 0.7
+    },
+    "chunk": 560,
+    "threads": 6,
+    "rule1": 2.4,
+    "rule2": 0.7,
+    "language": "nl-NL"
+  },
+  {
+    "id": "endpoint-1120-0p4",
+    "parent": "benchmark_results/postfix/sweep/chunk-1120",
+    "changed": {
+      "rule2_seconds": 0.4
+    },
+    "chunk": 1120,
+    "threads": 6,
+    "rule1": 2.4,
+    "rule2": 0.4,
+    "language": "nl-NL"
+  },
+  {
+    "id": "endpoint-1120-0p7",
+    "parent": "benchmark_results/postfix/sweep/chunk-1120",
+    "changed": {
+      "rule2_seconds": 0.7
+    },
+    "chunk": 1120,
+    "threads": 6,
+    "rule1": 2.4,
+    "rule2": 0.7,
+    "language": "nl-NL"
+  },
+  {
+    "id": "language-560-auto",
+    "parent": "benchmark_results/baseline/asr-maxspeed-clean",
+    "changed": {
+      "language": "auto"
+    },
+    "chunk": 560,
+    "threads": 6,
+    "rule1": 2.4,
+    "rule2": 1.4,
+    "language": "auto"
+  },
+  {
+    "id": "combined-1120-auto-0p7",
+    "parent": "benchmark_results/baseline/asr-maxspeed-clean",
+    "changed": {
+      "chunk_ms": 1120,
+      "language": "auto",
+      "rule2_seconds": 0.7
+    },
+    "chunk": 1120,
+    "threads": 6,
+    "rule1": 2.4,
+    "rule2": 0.7,
+    "language": "auto"
+  }
+]

@@ -16,30 +16,41 @@ from pathlib import Path
 def candidates() -> list[dict]:
     result = []
     for chunk in (80, 160, 320, 560, 1120):
-        result.append({"id": f"chunk-{chunk}", "parent": "baseline/asr-maxspeed",
+        result.append({"id": f"chunk-{chunk}", "parent": "benchmark_results/baseline/asr-maxspeed-clean",
                        "changed": {"chunk_ms": chunk}, "chunk": chunk, "threads": 6,
-                       "rule2": 1.4, "language": "nl-NL"})
+                       "rule1": 2.4, "rule2": 1.4, "language": "nl-NL"})
     for threads in (2, 4, 8):
-        result.append({"id": f"threads-1120-{threads}", "parent": "experiments/chunk-1120",
+        result.append({"id": f"threads-1120-{threads}", "parent": "benchmark_results/postfix/sweep/chunk-1120",
                        "changed": {"threads": threads}, "chunk": 1120, "threads": threads,
-                       "rule2": 1.4, "language": "nl-NL"})
+                       "rule1": 2.4, "rule2": 1.4, "language": "nl-NL"})
     for threads in (2, 4, 8):
-        result.append({"id": f"threads-560-{threads}", "parent": "baseline/asr-maxspeed",
+        result.append({"id": f"threads-560-{threads}", "parent": "benchmark_results/baseline/asr-maxspeed-clean",
                        "changed": {"threads": threads}, "chunk": 560, "threads": threads,
-                       "rule2": 1.4, "language": "nl-NL"})
-    for chunk, parent in ((560, "baseline/asr-maxspeed"), (1120, "experiments/chunk-1120")):
+                       "rule1": 2.4, "rule2": 1.4, "language": "nl-NL"})
+    for chunk, parent in ((560, "benchmark_results/baseline/asr-maxspeed-clean"),
+                          (1120, "benchmark_results/postfix/sweep/chunk-1120")):
         for endpoint in (0.4, 0.7):
             label = str(endpoint).replace(".", "p")
             result.append({"id": f"endpoint-{chunk}-{label}", "parent": parent,
                            "changed": {"rule2_seconds": endpoint}, "chunk": chunk, "threads": 6,
-                           "rule2": endpoint, "language": "nl-NL"})
-    result.append({"id": "language-560-auto", "parent": "baseline/asr-maxspeed",
+                           "rule1": 2.4, "rule2": endpoint, "language": "nl-NL"})
+    # Rule 1 also fires after silence without requiring recognized text. Lowering
+    # only Rule 2 can therefore leave long trailing-silence delays untouched.
+    for chunk in (560, 1120):
+        for rule1, rule2 in ((0.9, 0.7), (0.7, 0.4)):
+            label1, label2 = str(rule1).replace(".", "p"), str(rule2).replace(".", "p")
+            result.append({"id": f"endpoint-{chunk}-r1-{label1}-r2-{label2}",
+                           "parent": f"benchmark_results/postfix/sweep/chunk-{chunk}",
+                           "changed": {"rule1_seconds": rule1, "rule2_seconds": rule2},
+                           "chunk": chunk, "threads": 6, "rule1": rule1,
+                           "rule2": rule2, "language": "nl-NL"})
+    result.append({"id": "language-560-auto", "parent": "benchmark_results/baseline/asr-maxspeed-clean",
                    "changed": {"language": "auto"}, "chunk": 560, "threads": 6,
-                   "rule2": 1.4, "language": "auto"})
+                   "rule1": 2.4, "rule2": 1.4, "language": "auto"})
     # Combined only after separate chunk, language, and endpoint sweeps.
-    result.append({"id": "combined-1120-auto-0p7", "parent": "baseline/asr-maxspeed",
+    result.append({"id": "combined-1120-auto-0p7", "parent": "benchmark_results/baseline/asr-maxspeed-clean",
                    "changed": {"chunk_ms": 1120, "language": "auto", "rule2_seconds": 0.7},
-                   "chunk": 1120, "threads": 6, "rule2": 0.7, "language": "auto"})
+                   "chunk": 1120, "threads": 6, "rule1": 2.4, "rule2": 0.7, "language": "auto"})
     return result
 
 
@@ -70,20 +81,24 @@ def main() -> None:
         command = [sys.executable, str(Path(__file__).with_name("run_asr.py")),
                    "--out", str(output), "--split", "tuning", "--runs", str(args.runs),
                    "--mode", "maxspeed", "--chunk-ms", str(item["chunk"]),
-                   "--threads", str(item["threads"]), "--rule1-seconds", "2.4",
+                   "--threads", str(item["threads"]), "--rule1-seconds", str(item["rule1"]),
                    "--rule2-seconds", str(item["rule2"]), "--language", item["language"]]
         print(f"START {item['id']}: parent={item['parent']} changed={item['changed']}", flush=True)
         with (output.parent / f"{item['id']}.runner.log").open("w") as log:
             subprocess.run(command, stdout=log, stderr=subprocess.STDOUT, check=True)
         metrics = json.loads((output / "metrics.json").read_text())
+        parent_metrics = json.loads((Path(item["parent"]) / "metrics.json").read_text())
         index["experiments"].append({
             **item,
-            "metrics_before": "see parent configuration's metrics.json",
+            "metrics_before": {key: parent_metrics[key] for key in
+                                ("asr_wer", "asr_cer", "rtf", "processing_ms",
+                                 "stable_source_latency_ms", "partial_revisions_per_utterance",
+                                 "rewritten_visible_words_per_utterance")},
             "metrics_after": {key: metrics[key] for key in
                                ("asr_wer", "asr_cer", "rtf", "processing_ms",
                                 "stable_source_latency_ms", "partial_revisions_per_utterance",
                                 "rewritten_visible_words_per_utterance")},
-            "decision": "pending validation; keep/reject is recorded in BENCHMARK_REPORT.md",
+            "decision": "pending validation; run summarize_asr_sweep.py after validation",
             "output": str(output),
         })
         (args.out / "experiment_index.json").write_text(json.dumps(index, indent=2) + "\n")

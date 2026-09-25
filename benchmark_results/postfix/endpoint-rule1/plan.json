@@ -1,0 +1,54 @@
+[
+  {
+    "id": "endpoint-560-r1-0p9-r2-0p7",
+    "parent": "experiments/chunk-560",
+    "changed": {
+      "rule1_seconds": 0.9,
+      "rule2_seconds": 0.7
+    },
+    "chunk": 560,
+    "threads": 6,
+    "rule1": 0.9,
+    "rule2": 0.7,
+    "language": "nl-NL"
+  },
+  {
+    "id": "endpoint-560-r1-0p7-r2-0p4",
+    "parent": "experiments/chunk-560",
+    "changed": {
+      "rule1_seconds": 0.7,
+      "rule2_seconds": 0.4
+    },
+    "chunk": 560,
+    "threads": 6,
+    "rule1": 0.7,
+    "rule2": 0.4,
+    "language": "nl-NL"
+  },
+  {
+    "id": "endpoint-1120-r1-0p9-r2-0p7",
+    "parent": "experiments/chunk-1120",
+    "changed": {
+      "rule1_seconds": 0.9,
+      "rule2_seconds": 0.7
+    },
+    "chunk": 1120,
+    "threads": 6,
+    "rule1": 0.9,
+    "rule2": 0.7,
+    "language": "nl-NL"
+  },
+  {
+    "id": "endpoint-1120-r1-0p7-r2-0p4",
+    "parent": "experiments/chunk-1120",
+    "changed": {
+      "rule1_seconds": 0.7,
+      "rule2_seconds": 0.4
+    },
+    "chunk": 1120,
+    "threads": 6,
+    "rule1": 0.7,
+    "rule2": 0.4,
+    "language": "nl-NL"
+  }
+]

@@ -1,0 +1,120 @@
+{
+  "runs": [
+    {
+      "run": 1,
+      "load_ms": 1112.16595,
+      "warm_ms": 0.458483,
+      "elapsed_ms": 8013.56264,
+      "utterances": 10,
+      "mean_wer": 0.12469100054489049,
+      "mean_rtf": 0.08202057661726622
+    },
+    {
+      "run": 2,
+      "load_ms": 901.442364,
+      "warm_ms": 0.431235,
+      "elapsed_ms": 7587.383237,
+      "utterances": 10,
+      "mean_wer": 0.12469100054489049,
+      "mean_rtf": 0.07839375416606453
+    },
+    {
+      "run": 3,
+      "load_ms": 890.905461,
+      "warm_ms": 0.442579,
+      "elapsed_ms": 7635.155733,
+      "utterances": 10,
+      "mean_wer": 0.12469100054489049,
+      "mean_rtf": 0.0788408612504594
+    }
+  ],
+  "utterances": 30,
+  "audio_minutes": 4.911,
+  "asr_wer": 0.14545454545454545,
+  "asr_cer": 0.08401976935749589,
+  "word_error_counts": {
+    "substitutions": 78,
+    "deletions": 15,
+    "insertions": 3,
+    "reference_words": 660
+  },
+  "processing_ms": {
+    "n": 30,
+    "mean": 759.2896906000001,
+    "p50": 799.7819340000001,
+    "p90": 997.2407236000003,
+    "p95": 1194.57298565,
+    "p99": 1213.8431875,
+    "max": 1219.926474,
+    "stddev": 225.24669448864486
+  },
+  "rtf": {
+    "n": 30,
+    "mean": 0.07975173067793005,
+    "p50": 0.07793983721264368,
+    "p90": 0.0910615313718972,
+    "p95": 0.10392986803125,
+    "p99": 0.10716254508333334,
+    "max": 0.10847166791666667,
+    "stddev": 0.010441936123280218
+  },
+  "endpoint_delay_ms": {
+    "n": null,
+    "mean": null,
+    "p50": null,
+    "p90": null,
+    "p95": null,
+    "p99": null,
+    "max": null,
+    "stddev": null
+  },
+  "first_partial_latency_ms": {
+    "n": null,
+    "mean": null,
+    "p50": null,
+    "p90": null,
+    "p95": null,
+    "p99": null,
+    "max": null,
+    "stddev": null
+  },
+  "stable_source_latency_ms": {
+    "n": null,
+    "mean": null,
+    "p50": null,
+    "p90": null,
+    "p95": null,
+    "p99": null,
+    "max": null,
+    "stddev": null
+  },
+  "first_partial_processing_ms": {
+    "n": 30,
+    "mean": 135.87123236666667,
+    "p50": 110.77945700000001,
+    "p90": 270.41657230000004,
+    "p95": 292.48628425,
+    "p99": 303.56486474,
+    "max": 307.740312,
+    "stddev": 76.14390133848357
+  },
+  "stable_source_processing_ms": {
+    "n": 30,
+    "mean": 181.74366306666667,
+    "p50": 152.06185599999998,
+    "p90": 309.6443535,
+    "p95": 330.5974789,
+    "p99": 342.95620128,
+    "max": 347.57015,
+    "stddev": 74.40525123982871
+  },
+  "partial_revisions_per_utterance": 12.8,
+  "rewritten_visible_words_per_utterance": 4.9,
+  "stable_prefix_revisions_per_utterance": 0.0,
+  "final_correction_word_distance_per_utterance": 0.0,
+  "hy_provisional_request_candidates_per_utterance": 1.3,
+  "hy_final_request_candidates_per_utterance": 1.2,
+  "translation_latency": "not measured here; use the same pinned native C++ Hy benchmark",
+  "queue_depth": "not measured here; host runner does not instantiate CaptionSession",
+  "temperature": "host sensor values only; no Honor device connected"
+}

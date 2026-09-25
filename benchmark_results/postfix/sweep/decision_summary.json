@@ -1,0 +1,500 @@
+{
+  "policy_version": 1,
+  "selection_source": "tuning plus named validation only; final_holdout is not read",
+  "baseline": {
+    "wer": 0.14125200642054575,
+    "cer": 0.04682868998221695,
+    "rtf": 0.11878998609569368,
+    "stable_source_ms": 289.640012,
+    "rewrites": 4.5
+  },
+  "validation_baseline": {
+    "wer": 0.14545454545454545,
+    "cer": 0.08401976935749589,
+    "rtf": 0.07822423178934629,
+    "stable_source_ms": 150.479674,
+    "rewrites": 4.9
+  },
+  "tuning_pareto_ids": [
+    "threads-1120-8",
+    "endpoint-1120-0p4",
+    "endpoint-1120-0p7",
+    "combined-1120-auto-0p7"
+  ],
+  "decisions": [
+    {
+      "id": "chunk-80",
+      "parent_metrics_before": {
+        "wer": 0.14125200642054575,
+        "cer": 0.04682868998221695,
+        "rtf": 0.11878998609569368,
+        "stable_source_ms": 289.640012,
+        "rewrites": 4.5
+      },
+      "tuning_metrics_after": {
+        "wer": 0.18298555377207062,
+        "cer": 0.08120924718435092,
+        "rtf": 0.4739077839389359,
+        "stable_source_ms": 907.4971969999999,
+        "rewrites": 20.866666666666667
+      },
+      "validation_metrics_after": null,
+      "validation_path": null,
+      "validation_run_count": 0,
+      "tuning_pareto": false,
+      "changed": {
+        "chunk_ms": 80
+      },
+      "decision": "reject-unvalidated",
+      "conclusion": "candidate was not promoted to validation"
+    },
+    {
+      "id": "chunk-160",
+      "parent_metrics_before": {
+        "wer": 0.14125200642054575,
+        "cer": 0.04682868998221695,
+        "rtf": 0.11878998609569368,
+        "stable_source_ms": 289.640012,
+        "rewrites": 4.5
+      },
+      "tuning_metrics_after": {
+        "wer": 0.15890850722311398,
+        "cer": 0.06075874333135744,
+        "rtf": 0.18789635162635931,
+        "stable_source_ms": 368.83984050000004,
+        "rewrites": 16.666666666666668
+      },
+      "validation_metrics_after": null,
+      "validation_path": null,
+      "validation_run_count": 0,
+      "tuning_pareto": false,
+      "changed": {
+        "chunk_ms": 160
+      },
+      "decision": "reject-unvalidated",
+      "conclusion": "candidate was not promoted to validation"
+    },
+    {
+      "id": "chunk-320",
+      "parent_metrics_before": {
+        "wer": 0.14125200642054575,
+        "cer": 0.04682868998221695,
+        "rtf": 0.11878998609569368,
+        "stable_source_ms": 289.640012,
+        "rewrites": 4.5
+      },
+      "tuning_metrics_after": {
+        "wer": 0.1348314606741573,
+        "cer": 0.051570835803200946,
+        "rtf": 0.10825138322880447,
+        "stable_source_ms": 228.9182735,
+        "rewrites": 8.666666666666666
+      },
+      "validation_metrics_after": {
+        "wer": 0.20909090909090908,
+        "cer": 0.11696869851729819,
+        "rtf": 0.11588445150253102,
+        "stable_source_ms": 211.826839,
+        "rewrites": 10.1
+      },
+      "validation_path": "validation-postfix/asr-320-nl-1400",
+      "validation_run_count": 3,
+      "tuning_pareto": false,
+      "changed": {
+        "chunk_ms": 320
+      },
+      "decision": "reject-validation-accuracy",
+      "conclusion": "validation WER/CER regression exceeded policy"
+    },
+    {
+      "id": "chunk-560",
+      "parent_metrics_before": {
+        "wer": 0.14125200642054575,
+        "cer": 0.04682868998221695,
+        "rtf": 0.11878998609569368,
+        "stable_source_ms": 289.640012,
+        "rewrites": 4.5
+      },
+      "tuning_metrics_after": {
+        "wer": 0.14125200642054575,
+        "cer": 0.04682868998221695,
+        "rtf": 0.07715263481106428,
+        "stable_source_ms": 186.916632,
+        "rewrites": 4.5
+      },
+      "validation_metrics_after": null,
+      "validation_path": null,
+      "validation_run_count": 0,
+      "tuning_pareto": false,
+      "changed": {
+        "chunk_ms": 560
+      },
+      "decision": "keep-baseline",
+      "conclusion": "frozen 560 ms CPU profile"
+    },
+    {
+      "id": "chunk-1120",
+      "parent_metrics_before": {
+        "wer": 0.14125200642054575,
+        "cer": 0.04682868998221695,
+        "rtf": 0.11878998609569368,
+        "stable_source_ms": 289.640012,
+        "rewrites": 4.5
+      },
+      "tuning_metrics_after": {
+        "wer": 0.13162118780096307,
+        "cer": 0.04919976289270895,
+        "rtf": 0.0522149043943805,
+        "stable_source_ms": 151.1148005,
+        "rewrites": 2.5
+      },
+      "validation_metrics_after": {
+        "wer": 0.17272727272727273,
+        "cer": 0.09719934102141681,
+        "rtf": 0.055632038791576126,
+        "stable_source_ms": 154.44167249999998,
+        "rewrites": 2.3
+      },
+      "validation_path": "validation-postfix/asr-1120-nl-1400",
+      "validation_run_count": 3,
+      "tuning_pareto": false,
+      "changed": {
+        "chunk_ms": 1120
+      },
+      "decision": "reject-validation-accuracy",
+      "conclusion": "validation WER/CER regression exceeded policy"
+    },
+    {
+      "id": "threads-1120-2",
+      "parent_metrics_before": {
+        "wer": 0.13162118780096307,
+        "cer": 0.04919976289270895,
+        "rtf": 0.0522149043943805,
+        "stable_source_ms": 151.1148005,
+        "rewrites": 2.5
+      },
+      "tuning_metrics_after": {
+        "wer": 0.13162118780096307,
+        "cer": 0.04919976289270895,
+        "rtf": 0.07053565620800063,
+        "stable_source_ms": 203.5416745,
+        "rewrites": 2.5
+      },
+      "validation_metrics_after": null,
+      "validation_path": null,
+      "validation_run_count": 0,
+      "tuning_pareto": false,
+      "changed": {
+        "threads": 2
+      },
+      "decision": "reject-unvalidated",
+      "conclusion": "candidate was not promoted to validation"
+    },
+    {
+      "id": "threads-1120-4",
+      "parent_metrics_before": {
+        "wer": 0.13162118780096307,
+        "cer": 0.04919976289270895,
+        "rtf": 0.0522149043943805,
+        "stable_source_ms": 151.1148005,
+        "rewrites": 2.5
+      },
+      "tuning_metrics_after": {
+        "wer": 0.13162118780096307,
+        "cer": 0.04919976289270895,
+        "rtf": 0.05584242550420031,
+        "stable_source_ms": 162.36444749999998,
+        "rewrites": 2.5
+      },
+      "validation_metrics_after": null,
+      "validation_path": null,
+      "validation_run_count": 0,
+      "tuning_pareto": false,
+      "changed": {
+        "threads": 4
+      },
+      "decision": "reject-unvalidated",
+      "conclusion": "candidate was not promoted to validation"
+    },
+    {
+      "id": "threads-1120-8",
+      "parent_metrics_before": {
+        "wer": 0.13162118780096307,
+        "cer": 0.04919976289270895,
+        "rtf": 0.0522149043943805,
+        "stable_source_ms": 151.1148005,
+        "rewrites": 2.5
+      },
+      "tuning_metrics_after": {
+        "wer": 0.13162118780096307,
+        "cer": 0.04919976289270895,
+        "rtf": 0.052030028099848094,
+        "stable_source_ms": 150.47714,
+        "rewrites": 2.5
+      },
+      "validation_metrics_after": null,
+      "validation_path": null,
+      "validation_run_count": 0,
+      "tuning_pareto": true,
+      "changed": {
+        "threads": 8
+      },
+      "decision": "reject-unvalidated",
+      "conclusion": "candidate was not promoted to validation"
+    },
+    {
+      "id": "threads-560-2",
+      "parent_metrics_before": {
+        "wer": 0.14125200642054575,
+        "cer": 0.04682868998221695,
+        "rtf": 0.11878998609569368,
+        "stable_source_ms": 289.640012,
+        "rewrites": 4.5
+      },
+      "tuning_metrics_after": {
+        "wer": 0.14125200642054575,
+        "cer": 0.04682868998221695,
+        "rtf": 0.10552657941963813,
+        "stable_source_ms": 256.98422700000003,
+        "rewrites": 4.5
+      },
+      "validation_metrics_after": null,
+      "validation_path": null,
+      "validation_run_count": 0,
+      "tuning_pareto": false,
+      "changed": {
+        "threads": 2
+      },
+      "decision": "reject-unvalidated",
+      "conclusion": "candidate was not promoted to validation"
+    },
+    {
+      "id": "threads-560-4",
+      "parent_metrics_before": {
+        "wer": 0.14125200642054575,
+        "cer": 0.04682868998221695,
+        "rtf": 0.11878998609569368,
+        "stable_source_ms": 289.640012,
+        "rewrites": 4.5
+      },
+      "tuning_metrics_after": {
+        "wer": 0.14125200642054575,
+        "cer": 0.04682868998221695,
+        "rtf": 0.07898510959509042,
+        "stable_source_ms": 191.683445,
+        "rewrites": 4.5
+      },
+      "validation_metrics_after": null,
+      "validation_path": null,
+      "validation_run_count": 0,
+      "tuning_pareto": false,
+      "changed": {
+        "threads": 4
+      },
+      "decision": "reject-unvalidated",
+      "conclusion": "candidate was not promoted to validation"
+    },
+    {
+      "id": "threads-560-8",
+      "parent_metrics_before": {
+        "wer": 0.14125200642054575,
+        "cer": 0.04682868998221695,
+        "rtf": 0.11878998609569368,
+        "stable_source_ms": 289.640012,
+        "rewrites": 4.5
+      },
+      "tuning_metrics_after": {
+        "wer": 0.14125200642054575,
+        "cer": 0.04682868998221695,
+        "rtf": 0.08176186730527,
+        "stable_source_ms": 198.3574415,
+        "rewrites": 4.5
+      },
+      "validation_metrics_after": null,
+      "validation_path": null,
+      "validation_run_count": 0,
+      "tuning_pareto": false,
+      "changed": {
+        "threads": 8
+      },
+      "decision": "reject-unvalidated",
+      "conclusion": "candidate was not promoted to validation"
+    },
+    {
+      "id": "endpoint-560-0p4",
+      "parent_metrics_before": {
+        "wer": 0.14125200642054575,
+        "cer": 0.04682868998221695,
+        "rtf": 0.11878998609569368,
+        "stable_source_ms": 289.640012,
+        "rewrites": 4.5
+      },
+      "tuning_metrics_after": {
+        "wer": 0.1797752808988764,
+        "cer": 0.07350326022525193,
+        "rtf": 0.07714267499180048,
+        "stable_source_ms": 191.46312849999998,
+        "rewrites": 3.8
+      },
+      "validation_metrics_after": null,
+      "validation_path": null,
+      "validation_run_count": 0,
+      "tuning_pareto": false,
+      "changed": {
+        "rule2_seconds": 0.4
+      },
+      "decision": "reject-unvalidated",
+      "conclusion": "candidate was not promoted to validation"
+    },
+    {
+      "id": "endpoint-560-0p7",
+      "parent_metrics_before": {
+        "wer": 0.14125200642054575,
+        "cer": 0.04682868998221695,
+        "rtf": 0.11878998609569368,
+        "stable_source_ms": 289.640012,
+        "rewrites": 4.5
+      },
+      "tuning_metrics_after": {
+        "wer": 0.16211878009630817,
+        "cer": 0.054831061055127445,
+        "rtf": 0.07581698359159605,
+        "stable_source_ms": 182.07732750000002,
+        "rewrites": 4.333333333333333
+      },
+      "validation_metrics_after": null,
+      "validation_path": null,
+      "validation_run_count": 0,
+      "tuning_pareto": false,
+      "changed": {
+        "rule2_seconds": 0.7
+      },
+      "decision": "reject-unvalidated",
+      "conclusion": "candidate was not promoted to validation"
+    },
+    {
+      "id": "endpoint-1120-0p4",
+      "parent_metrics_before": {
+        "wer": 0.13162118780096307,
+        "cer": 0.04919976289270895,
+        "rtf": 0.0522149043943805,
+        "stable_source_ms": 151.1148005,
+        "rewrites": 2.5
+      },
+      "tuning_metrics_after": {
+        "wer": 0.18459069020866772,
+        "cer": 0.07765263781861292,
+        "rtf": 0.05149379263249665,
+        "stable_source_ms": 157.813773,
+        "rewrites": 1.7666666666666666
+      },
+      "validation_metrics_after": null,
+      "validation_path": null,
+      "validation_run_count": 0,
+      "tuning_pareto": true,
+      "changed": {
+        "rule2_seconds": 0.4
+      },
+      "decision": "reject-unvalidated",
+      "conclusion": "candidate was not promoted to validation"
+    },
+    {
+      "id": "endpoint-1120-0p7",
+      "parent_metrics_before": {
+        "wer": 0.13162118780096307,
+        "cer": 0.04919976289270895,
+        "rtf": 0.0522149043943805,
+        "stable_source_ms": 151.1148005,
+        "rewrites": 2.5
+      },
+      "tuning_metrics_after": {
+        "wer": 0.13643659711075443,
+        "cer": 0.043568464730290454,
+        "rtf": 0.055436049698908425,
+        "stable_source_ms": 173.35001749999998,
+        "rewrites": 1.6
+      },
+      "validation_metrics_after": {
+        "wer": 0.19090909090909092,
+        "cer": 0.09719934102141681,
+        "rtf": 0.04862360432455119,
+        "stable_source_ms": 149.3283465,
+        "rewrites": 1.8
+      },
+      "validation_path": "validation-postfix/asr-1120-nl-0700",
+      "validation_run_count": 3,
+      "tuning_pareto": true,
+      "changed": {
+        "rule2_seconds": 0.7
+      },
+      "decision": "reject-validation-accuracy",
+      "conclusion": "validation WER/CER regression exceeded policy"
+    },
+    {
+      "id": "language-560-auto",
+      "parent_metrics_before": {
+        "wer": 0.14125200642054575,
+        "cer": 0.04682868998221695,
+        "rtf": 0.11878998609569368,
+        "stable_source_ms": 289.640012,
+        "rewrites": 4.5
+      },
+      "tuning_metrics_after": {
+        "wer": 0.13804173354735153,
+        "cer": 0.04445761707172496,
+        "rtf": 0.11379631742507954,
+        "stable_source_ms": 290.44659,
+        "rewrites": 4.533333333333333
+      },
+      "validation_metrics_after": {
+        "wer": 0.14545454545454545,
+        "cer": 0.08978583196046129,
+        "rtf": 0.07929732422484398,
+        "stable_source_ms": 152.32715000000002,
+        "rewrites": 5.1
+      },
+      "validation_path": "validation-postfix/asr-560-auto-1400",
+      "validation_run_count": 3,
+      "tuning_pareto": false,
+      "changed": {
+        "language": "auto"
+      },
+      "decision": "reject-validation-accuracy",
+      "conclusion": "validation WER/CER regression exceeded policy"
+    },
+    {
+      "id": "combined-1120-auto-0p7",
+      "parent_metrics_before": {
+        "wer": 0.14125200642054575,
+        "cer": 0.04682868998221695,
+        "rtf": 0.11878998609569368,
+        "stable_source_ms": 289.640012,
+        "rewrites": 4.5
+      },
+      "tuning_metrics_after": {
+        "wer": 0.13643659711075443,
+        "cer": 0.041790160047421455,
+        "rtf": 0.07814887842029339,
+        "stable_source_ms": 241.0789815,
+        "rewrites": 1.6
+      },
+      "validation_metrics_after": {
+        "wer": 0.18636363636363637,
+        "cer": 0.09060955518945635,
+        "rtf": 0.04923444350790882,
+        "stable_source_ms": 151.468782,
+        "rewrites": 1.9
+      },
+      "validation_path": "validation-postfix/asr-1120-auto-0700",
+      "validation_run_count": 3,
+      "tuning_pareto": true,
+      "changed": {
+        "chunk_ms": 1120,
+        "language": "auto",
+        "rule2_seconds": 0.7
+      },
+      "decision": "reject-validation-accuracy",
+      "conclusion": "validation WER/CER regression exceeded policy"
+    }
+  ]
+}

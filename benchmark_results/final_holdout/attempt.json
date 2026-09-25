@@ -1,0 +1,8 @@
+{
+  "attempted_at_utc": "2026-09-25T00:03:57Z",
+  "out": "benchmark_results/final_holdout/asr-560",
+  "chunk_ms": 560,
+  "threads": 6,
+  "rule1_seconds": 2.4,
+  "rule2_seconds": 1.4
+}

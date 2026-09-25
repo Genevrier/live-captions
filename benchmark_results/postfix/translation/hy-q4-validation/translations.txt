@@ -1,0 +1,30 @@
+1	fleurs-validation-1659	Scientists say that the collision caused a huge explosion.
+1	fleurs-validation-1513	Aretinia is known for having some of the best polo teams and players in the world.
+1	fleurs-validation-1599	Because they still need the same adaptation as before, the original population has not changed at all.
+1	fleurs-validation-1518	The capital of the Philippines had a former Filipino police officer accompanying tourists from Hong Kong with their bust covers.
+1	fleurs-validation-1652	Orthodox Christianity is the main religion in Moldova.
+1	fleurs-validation-1650	The main habitat of saltwater crocodiles is in river estuaries north of Rockhampton, and they generally do not live in the ocean.
+1	fleurs-validation-1655	Learning and socialization, for example, are presented as important reasons for using the Internet. James et al., negative five.
+1	fleurs-validation-1623	First, all states had to unanimously agree to the articles before they could be amended, but the states did not take the national government seriously, so their representatives were often absent.
+1	fleurs-validation-1580	In the US, there are approximately four hundred thousand known cases of multiple sclerosis (MS), making it the most common neurological disorder among adults of both younger and middle-aged ages.
+1	fleurs-validation-1637	A group of market women will, on October 6th, 1798, accompany the departure from Versailles to Paris of Queen Marie Antoinette and her two young children, Marie Thérèse, aged eleven, and Louise-Charlotte, aged four, as well as the king’s sister, Madame Elizabeth.
+2	fleurs-validation-1659	Scientists say that the collision caused a huge explosion.
+2	fleurs-validation-1513	Aretinia is known for having some of the best polo teams and players in the world.
+2	fleurs-validation-1599	Because they still need the same adaptation as before, the original population has not changed at all.
+2	fleurs-validation-1518	The capital of the Philippines had a former Filipino police officer accompanying tourists from Hong Kong with their bust covers.
+2	fleurs-validation-1652	Orthodox Christianity is the main religion in Moldova.
+2	fleurs-validation-1650	The main habitat of saltwater crocodiles is in river estuaries north of Rockhampton, and they generally do not live in the ocean.
+2	fleurs-validation-1655	Learning and socialization, for example, are presented as important reasons for using the Internet. James et al., negative five.
+2	fleurs-validation-1623	First, all states had to unanimously agree to the articles before they could be amended, but the states did not take the national government seriously, so their representatives were often absent.
+2	fleurs-validation-1580	In the US, there are approximately four hundred thousand known cases of multiple sclerosis (MS), making it the most common neurological disorder among adults of both younger and middle-aged ages.
+2	fleurs-validation-1637	A group of market women will, on October 6th, 1798, accompany the departure from Versailles to Paris of Queen Marie Antoinette and her two young children, Marie Thérèse, aged eleven, and Louise-Charlotte, aged four, as well as the king’s sister, Madame Elizabeth.
+3	fleurs-validation-1659	Scientists say that the collision caused a huge explosion.
+3	fleurs-validation-1513	Aretinia is known for having some of the best polo teams and players in the world.
+3	fleurs-validation-1599	Because they still need the same adaptation as before, the original population has not changed at all.
+3	fleurs-validation-1518	The capital of the Philippines had a former Filipino police officer accompanying tourists from Hong Kong with their bust covers.
+3	fleurs-validation-1652	Orthodox Christianity is the main religion in Moldova.
+3	fleurs-validation-1650	The main habitat of saltwater crocodiles is in river estuaries north of Rockhampton, and they generally do not live in the ocean.
+3	fleurs-validation-1655	Learning and socialization, for example, are presented as important reasons for using the Internet. James et al., negative five.
+3	fleurs-validation-1623	First, all states had to unanimously agree to the articles before they could be amended, but the states did not take the national government seriously, so their representatives were often absent.
+3	fleurs-validation-1580	In the US, there are approximately four hundred thousand known cases of multiple sclerosis (MS), making it the most common neurological disorder among adults of both younger and middle-aged ages.
+3	fleurs-validation-1637	A group of market women will, on October 6th, 1798, accompany the departure from Versailles to Paris of Queen Marie Antoinette and her two young children, Marie Thérèse, aged eleven, and Louise-Charlotte, aged four, as well as the king’s sister, Madame Elizabeth.

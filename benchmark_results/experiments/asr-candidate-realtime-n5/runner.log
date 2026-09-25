@@ -1,0 +1,4 @@
+run 1/3: 5/5 utterances
+run 2/3: 5/5 utterances
+run 3/3: 5/5 utterances
+{"out": "benchmark_results/experiments/asr-candidate-realtime-n5", "wer": 0.1, "cer": 0.022598870056497175, "mean_rtf": 0.05779449338707183, "run_count": 3}

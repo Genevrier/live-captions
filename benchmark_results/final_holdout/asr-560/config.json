@@ -1,0 +1,31 @@
+{
+  "commit": "6d79e448f8dfe3519b0d4c76966199eba222a48e",
+  "model": "Nemotron 3.5 Streaming ASR 0.6B INT8",
+  "asr_harness_sha256": "3250dad97e6b93e027af599afd273a0997ce126959d78b857f36750ed026109c",
+  "tracked_worktree_diff_sha256": "a677b0ee899da0ecc9e88e736e265df9e97f7f2cd7be8b64152038741886eac8",
+  "chunk_ms": 560,
+  "model_archive_sha256": "c6bf5e0df765f9d5b43bc9e0536d4b4b3e7d40bdf5ecf13e45f134c51c05ae3a",
+  "backend": "CPU (sherpa-onnx Python 1.13.8 / ONNX Runtime CPU provider)",
+  "qnn_active": false,
+  "opencl_active": false,
+  "language": "nl-NL",
+  "threads": 6,
+  "sample_rate_hz": 16000,
+  "input_frame_ms": 100,
+  "endpointing": {
+    "enabled": true,
+    "rule1_min_trailing_silence_s": 2.4,
+    "rule2_min_trailing_silence_s": 1.4,
+    "rule3_min_utterance_s": 20.0
+  },
+  "mode": "maxspeed",
+  "runs": 1,
+  "split": "final_holdout",
+  "dataset_revision": "168de341b3db6859a9bac1c50a2ef5e3b47647e0",
+  "dataset_manifest_sha256": "ef3d75861e68ddfaed8c3d36940da34c5766660bf81034971da0f4218e6b025a",
+  "pipeline_scope": "sherpa model component only; not Android CaptionSession",
+  "source_language": "Dutch (FLEURS nl_nl)",
+  "reference_kind": "FLEURS Dutch transcript; parallel English text is reserved for translation evaluation",
+  "queue_depth": "not instrumented by this host runner",
+  "warmup": "5 x 100 ms silence fed before timing; model/recognizer loaded once per run"
+}

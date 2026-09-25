@@ -1,0 +1,28 @@
+{
+  "mode": "hy",
+  "bundle": "hymt2-7b-Q4_K_M",
+  "revision": "ab8472660ac61fac25f1af43fac2599d52a8a775",
+  "license": "Apache-2.0",
+  "assets": [
+    {
+      "path": "model.gguf",
+      "url": "https://huggingface.co/tencent/Hy-MT2-7B-GGUF/resolve/ab8472660ac61fac25f1af43fac2599d52a8a775/Hy-MT2-7B-Q4_K_M.gguf",
+      "size": 4624648896,
+      "sha256": "9f96256500f3fc1ab4d64336b58f52a949a95ad7516b0c229476eef782f9f77b"
+    }
+  ],
+  "threads": 4,
+  "backend": "CPU; no Adreno/OpenCL device in this runner",
+  "source": "run-1 hypotheses from the frozen Nemotron final_holdout ASR run",
+  "reference": "parallel human-produced FLEURS English reference; translation quality is approximate",
+  "dataset_revision": "168de341b3db6859a9bac1c50a2ef5e3b47647e0",
+  "split": "final_holdout",
+  "case_count": 10,
+  "runs": 1,
+  "host": {
+    "platform": "Linux-6.17.0-1031-nvidia-aarch64-with-glibc2.39",
+    "machine": "aarch64",
+    "python": "3.12.3 (main, Jul 15 2026, 23:46:41) [GCC 13.3.0]"
+  },
+  "translation_prompt": "production Dutch\u2192English TranslationPrompt; no glossary/context"
+}

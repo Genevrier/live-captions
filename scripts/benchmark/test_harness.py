@@ -5,6 +5,8 @@ from pathlib import Path
 from prepare_fleurs import choose_rows
 from prepare_youtube_robustness import transcript_from_vtt
 from run_asr import CHUNK_SAMPLES, StablePrefix, levenshtein, normalized_words, run_one, should_translate
+from summarize_asr_sweep import dominates
+from summarize_translation import dominates as dominates_translation
 import numpy as np
 
 
@@ -18,6 +20,22 @@ class FrozenCorpusTests(unittest.TestCase):
 
 
 class StreamingMetricTests(unittest.TestCase):
+    def test_pareto_dominance_requires_no_metric_regression(self):
+        better = {"wer": .1, "cer": .02, "rtf": .1, "stable_source_ms": 100., "rewrites": 1.}
+        worse = {"wer": .11, "cer": .02, "rtf": .11, "stable_source_ms": 110., "rewrites": 1.}
+        tradeoff = {"wer": .09, "cer": .03, "rtf": .1, "stable_source_ms": 100., "rewrites": 1.}
+        self.assertTrue(dominates(better, worse))
+        self.assertFalse(dominates(better, tradeoff))
+        self.assertFalse(dominates(worse, better))
+
+    def test_translation_pareto_keeps_quality_latency_tradeoffs(self):
+        quality = {"chrf_plus_plus": 58., "bleu": 35., "p50_ms": 5000.}
+        fast = {"chrf_plus_plus": 51., "bleu": 24., "p50_ms": 175.}
+        weaker = {"chrf_plus_plus": 50., "bleu": 23., "p50_ms": 200.}
+        self.assertFalse(dominates_translation(quality, fast))
+        self.assertFalse(dominates_translation(fast, quality))
+        self.assertTrue(dominates_translation(fast, weaker))
+
     def test_word_error_breakdown(self):
         reference = normalized_words("De temperatuur is goed")
         hypothesis = normalized_words("De temperatuur was goed extra")

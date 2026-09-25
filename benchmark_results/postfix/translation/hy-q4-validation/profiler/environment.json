@@ -1,0 +1,30 @@
+{
+  "thermal_before": {
+    "thermal_zone2:acpitz": "50100",
+    "thermal_zone0:acpitz": "50100",
+    "thermal_zone5:acpitz": "45000",
+    "thermal_zone3:acpitz": "43800",
+    "thermal_zone1:acpitz": "43700",
+    "thermal_zone6:acpitz": "43800",
+    "thermal_zone4:acpitz": "43600"
+  },
+  "load_average_before": [
+    2.0634765625,
+    4.00537109375,
+    5.36474609375
+  ],
+  "thermal_after": {
+    "thermal_zone2:acpitz": "70400",
+    "thermal_zone0:acpitz": "70400",
+    "thermal_zone5:acpitz": "64600",
+    "thermal_zone3:acpitz": "61600",
+    "thermal_zone1:acpitz": "61800",
+    "thermal_zone6:acpitz": "65400",
+    "thermal_zone4:acpitz": "64200"
+  },
+  "load_average_after": [
+    5.38671875,
+    4.88525390625,
+    5.41259765625
+  ]
+}

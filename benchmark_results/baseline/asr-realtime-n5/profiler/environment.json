@@ -1,0 +1,16 @@
+{
+  "platform": "Linux-6.17.0-1031-nvidia-aarch64-with-glibc2.39",
+  "machine": "aarch64",
+  "python": "3.12.3 (main, Jul 15 2026, 23:46:41) [GCC 13.3.0]",
+  "sherpa_onnx": "1.13.8",
+  "available_memory": "MemTotal:       127600812 kB",
+  "thermal_zones": [
+    "44200",
+    "44800",
+    "44800",
+    "43100",
+    "43000",
+    "42800",
+    "43200"
+  ]
+}

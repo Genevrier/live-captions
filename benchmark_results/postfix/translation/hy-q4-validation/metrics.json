@@ -1,0 +1,150 @@
+{
+  "runs": [
+    {
+      "run": 1,
+      "wall_ms_including_model_load": 62768.531040987,
+      "translation_ms": {
+        "n": 10,
+        "mean": 5970.5821,
+        "p50": 5310.222,
+        "p90": 8241.667699999998,
+        "p95": 9861.513349999997,
+        "p99": 11157.38987,
+        "max": 11481.359,
+        "stddev": 2388.8844910819967
+      },
+      "translation_rtf": {
+        "n": 10,
+        "mean": 0.6213512813721934,
+        "p50": 0.6486748199838188,
+        "p90": 0.77247044964539,
+        "p95": 0.7963430581560283,
+        "p99": 0.815441144964539,
+        "max": 0.8202156666666667,
+        "stddev": 0.13804609213058272
+      }
+    },
+    {
+      "run": 2,
+      "wall_ms_including_model_load": 78161.40724299476,
+      "translation_ms": {
+        "n": 10,
+        "mean": 7461.7451,
+        "p50": 5491.6630000000005,
+        "p90": 13324.910499999998,
+        "p95": 17023.984749999992,
+        "p99": 19983.244150000002,
+        "max": 20723.059,
+        "stddev": 5105.6946544594
+      },
+      "translation_rtf": {
+        "n": 10,
+        "mean": 0.7274370654985628,
+        "p50": 0.6946213004032258,
+        "p90": 1.0177060720390936,
+        "p95": 1.1532267611439246,
+        "p99": 1.2616433124277902,
+        "max": 1.2887474502487564,
+        "stddev": 0.25614354022960173
+      }
+    },
+    {
+      "run": 3,
+      "wall_ms_including_model_load": 101969.77063198574,
+      "translation_ms": {
+        "n": 10,
+        "mean": 9780.8439,
+        "p50": 8580.505000000001,
+        "p90": 13519.498399999997,
+        "p95": 16334.295199999993,
+        "p99": 18586.13264,
+        "max": 19149.092,
+        "stddev": 4018.8398695672972
+      },
+      "translation_rtf": {
+        "n": 10,
+        "mean": 1.0158521797263647,
+        "p50": 1.035188523894155,
+        "p90": 1.2978012677304964,
+        "p95": 1.3154527171985815,
+        "p99": 1.3295738767730498,
+        "max": 1.3331041666666668,
+        "stddev": 0.23351150005098617
+      }
+    }
+  ],
+  "utterances": 30,
+  "translation_latency_ms": {
+    "n": 30,
+    "mean": 7737.7237,
+    "p50": 6396.871999999999,
+    "p90": 12571.2075,
+    "p95": 16334.295199999982,
+    "p99": 20266.608570000004,
+    "max": 20723.059,
+    "stddev": 4293.3768639338605
+  },
+  "translation_rtf": {
+    "n": 30,
+    "mean": 0.7882135088657068,
+    "p50": 0.7046671190920398,
+    "p90": 1.2006522823383088,
+    "p95": 1.2915696504842806,
+    "p99": 1.3217287881205675,
+    "max": 1.3331041666666668,
+    "stddev": 0.2723661756493785
+  },
+  "chrf_plus_plus": 57.32833576320068,
+  "bleu": 24.146978043576475,
+  "quality_caveat": "FLEURS parallel English text is a useful reference, not a professional evaluation of every ASR-conditioned output; scores are approximate.",
+  "hy_prefill_ms": {
+    "n": 30,
+    "mean": 3971.9666666666667,
+    "p50": 3575.0,
+    "p90": 5896.700000000001,
+    "p95": 6354.799999999999,
+    "p99": 6546.49,
+    "max": 6552.0,
+    "stddev": 1256.8085370846625
+  },
+  "hy_decode_ms": {
+    "n": 30,
+    "mean": 3759.0666666666666,
+    "p50": 2686.5,
+    "p90": 6780.6,
+    "p95": 10113.649999999983,
+    "p99": 13712.050000000001,
+    "max": 14163.0,
+    "stddev": 3156.4896740243303
+  },
+  "hy_first_token_ms": {
+    "n": 30,
+    "mean": 3978.0333333333333,
+    "p50": 3580.0,
+    "p90": 5902.8,
+    "p95": 6362.3499999999985,
+    "p99": 6554.49,
+    "max": 6560.0,
+    "stddev": 1257.3689589332516
+  },
+  "hy_tokens_per_second": {
+    "n": 30,
+    "mean": 8.980516840903167,
+    "p50": 11.08022408677837,
+    "p90": 12.161741449814928,
+    "p95": 12.252744106583402,
+    "p99": 12.31597302504058,
+    "max": 12.318029115341545,
+    "stddev": 3.2515697889318966
+  },
+  "process_max_rss_kb": 4859584,
+  "literal_number_reference_sentences": 9,
+  "literal_number_exact_match_rate": 0.0,
+  "literal_number_metric_note": "Exact digit-string rendering only; no reference contains a number written out as words.",
+  "named_entity_metric": null,
+  "named_entity_metric_note": "FLEURS samples have no independent named-entity annotations.",
+  "technical_terminology_metric": null,
+  "technical_terminology_metric_note": "No in-domain technical audio or independently annotated glossary is present.",
+  "end_to_end_caption_latency_ms": null,
+  "opus_token_count": "not exposed by the current OPUS native engine; total completion latency is measured"
+}

@@ -1,0 +1,114 @@
+{
+  "runs": [
+    {
+      "run": 1,
+      "wall_ms_including_model_load": 2876.0869461111724,
+      "translation_ms": {
+        "n": 10,
+        "mean": 221.07160000000005,
+        "p50": 211.184,
+        "p90": 294.9264999999999,
+        "p95": 410.2952499999997,
+        "p99": 502.59025,
+        "max": 525.664,
+        "stddev": 116.36031606883851
+      },
+      "translation_rtf": {
+        "n": 10,
+        "mean": 0.02244990909945449,
+        "p50": 0.02334331796116505,
+        "p90": 0.02753442706679369,
+        "p95": 0.030112487165237636,
+        "p99": 0.03217493524399281,
+        "max": 0.0326905472636816,
+        "stddev": 0.006118598318403788
+      }
+    },
+    {
+      "run": 2,
+      "wall_ms_including_model_load": 2823.2945899944752,
+      "translation_ms": {
+        "n": 10,
+        "mean": 219.5523,
+        "p50": 208.6035,
+        "p90": 293.2009999999999,
+        "p95": 410.9569999999997,
+        "p99": 505.1618,
+        "max": 528.713,
+        "stddev": 117.6003023414906
+      },
+      "translation_rtf": {
+        "n": 10,
+        "mean": 0.02223045552223909,
+        "p50": 0.022847472491909382,
+        "p90": 0.02760588850957976,
+        "p95": 0.03024302510056102,
+        "p99": 0.03235273437334604,
+        "max": 0.032880161691542294,
+        "stddev": 0.006097475374775701
+      }
+    },
+    {
+      "run": 3,
+      "wall_ms_including_model_load": 2816.331227077171,
+      "translation_ms": {
+        "n": 10,
+        "mean": 218.8366,
+        "p50": 207.981,
+        "p90": 291.43799999999993,
+        "p95": 406.39949999999976,
+        "p99": 498.36870000000005,
+        "max": 521.361,
+        "stddev": 115.20534257160125
+      },
+      "translation_rtf": {
+        "n": 10,
+        "mean": 0.022254142493442795,
+        "p50": 0.023075691747572815,
+        "p90": 0.028079901159098124,
+        "p95": 0.030251424460146073,
+        "p99": 0.03198864310098444,
+        "max": 0.03242294776119403,
+        "stddev": 0.006144775141099698
+      }
+    }
+  ],
+  "utterances": 30,
+  "translation_latency_ms": {
+    "n": 30,
+    "mean": 219.82016666666667,
+    "p50": 209.51999999999998,
+    "p90": 294.49620000000033,
+    "p95": 523.7276499999999,
+    "p99": 527.82879,
+    "max": 528.713,
+    "stddev": 116.39649259437425
+  },
+  "translation_rtf": {
+    "n": 30,
+    "mean": 0.022311502371712123,
+    "p50": 0.022938734627831713,
+    "p90": 0.02807990115909813,
+    "p95": 0.03257012748756219,
+    "p99": 0.03282517350746269,
+    "max": 0.032880161691542294,
+    "stddev": 0.006121103605080147
+  },
+  "chrf_plus_plus": 51.29854031080786,
+  "bleu": 19.842509162966724,
+  "quality_caveat": "FLEURS parallel English text is a useful reference, not a professional evaluation of every ASR-conditioned output; scores are approximate.",
+  "hy_prefill_ms": null,
+  "hy_decode_ms": null,
+  "hy_first_token_ms": null,
+  "hy_tokens_per_second": null,
+  "process_max_rss_kb": 564928,
+  "literal_number_reference_sentences": 9,
+  "literal_number_exact_match_rate": 0.0,
+  "literal_number_metric_note": "Exact digit-string rendering only; no reference contains a number written out as words.",
+  "named_entity_metric": null,
+  "named_entity_metric_note": "FLEURS samples have no independent named-entity annotations.",
+  "technical_terminology_metric": null,
+  "technical_terminology_metric_note": "No in-domain technical audio or independently annotated glossary is present.",
+  "end_to_end_caption_latency_ms": null,
+  "opus_token_count": "not exposed by the current OPUS native engine; total completion latency is measured"
+}

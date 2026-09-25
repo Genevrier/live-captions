@@ -1,0 +1,62 @@
+{
+  "selection_source": "tuning and validation only; final_holdout is not read",
+  "measurements": {
+    "OPUS tuning": {
+      "chrf_plus_plus": 51.01837957664016,
+      "bleu": 24.276578470714494,
+      "p50_ms": 175.125,
+      "p95_ms": 374.0884
+    },
+    "Hy Q4 tuning": {
+      "chrf_plus_plus": 58.71589912946621,
+      "bleu": 35.31314832627347,
+      "p50_ms": 5136.1,
+      "p95_ms": 9065.0195
+    },
+    "Hy Q5 tuning screen": {
+      "chrf_plus_plus": 58.12455331890662,
+      "bleu": 34.637913869548065,
+      "p50_ms": 6656.531499999999,
+      "p95_ms": 10873.619349999994
+    },
+    "Hy Q6 tuning screen": {
+      "chrf_plus_plus": 57.729612800967956,
+      "bleu": 34.67625140898426,
+      "p50_ms": 6933.067999999999,
+      "p95_ms": 11007.973599999994
+    }
+  },
+  "tuning_pareto_labels": [
+    "OPUS tuning",
+    "Hy Q4 tuning"
+  ],
+  "validation": {
+    "OPUS": {
+      "chrf_plus_plus": 51.29854031080786,
+      "bleu": 19.842509162966724,
+      "p50_ms": 209.51999999999998,
+      "p95_ms": 523.7276499999999
+    },
+    "Hy Q4": {
+      "chrf_plus_plus": 57.32833576320068,
+      "bleu": 24.146978043576475,
+      "p50_ms": 6396.871999999999,
+      "p95_ms": 16334.295199999982
+    }
+  },
+  "quantization_decisions": {
+    "Hy Q5 tuning screen": {
+      "decision": "reject",
+      "reason": "screen has fewer than three runs",
+      "runs": 1
+    },
+    "Hy Q6 tuning screen": {
+      "decision": "reject",
+      "reason": "screen has fewer than three runs",
+      "runs": 1
+    }
+  },
+  "default_translator": "Hy Q4_K_M",
+  "opus_mode": "retain only as explicit low-latency option; it is a quality/latency tradeoff, not a silent default replacement",
+  "quality_caveat": "chrF++ and BLEU are approximate on ASR-conditioned FLEURS text; screens have one measured run"
+}

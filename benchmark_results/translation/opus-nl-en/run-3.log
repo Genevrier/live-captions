@@ -1,0 +1,2 @@
+model_load_us=393178 warm_translation_us=116904 backend="CPU"
+PASS: resident opus model benchmark completed
