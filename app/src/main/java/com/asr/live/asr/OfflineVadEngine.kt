@@ -24,6 +24,9 @@ class OfflineVadEngine(
     private val onFinal: (String) -> Unit,
 ) : AsrEngine {
 
+    private val decodeTelemetry = DecodeTelemetry()
+    override val decodeStats: AsrDecodeStats get() = decodeTelemetry.snapshot()
+
     private val vad = Vad(
         config = VadModelConfig(
             sileroVadModelConfig = SileroVadModelConfig(
@@ -93,7 +96,7 @@ class OfflineVadEngine(
         val stream = recognizer.createStream()
         return try {
             stream.acceptWaveform(samples, SAMPLE_RATE)
-            recognizer.decode(stream)
+            decodeTelemetry.measure { recognizer.decode(stream) }
             recognizer.getResult(stream).text
         } finally {
             stream.release()

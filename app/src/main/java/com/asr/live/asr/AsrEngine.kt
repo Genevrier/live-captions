@@ -5,6 +5,9 @@ package com.asr.live.asr
  * every call must come from the same thread (the decode worker in CaptionService).
  */
 interface AsrEngine {
+    /** Cumulative timings for actual recognizer.decode() calls; callback-only updates add none. */
+    val decodeStats: AsrDecodeStats get() = AsrDecodeStats()
+
     /** Feed a chunk of audio; may emit partial/final results via the callbacks. */
     fun accept(samples: FloatArray)
 

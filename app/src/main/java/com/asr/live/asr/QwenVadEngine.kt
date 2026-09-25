@@ -7,6 +7,8 @@ import java.io.File
  * bound decoder work and avoid waiting for a long uninterrupted monologue. */
 class QwenVadEngine(dir: File, vadPath: String, threads: Int,
                     private val onFinal: (String) -> Unit) : AsrEngine {
+    private val decodeTelemetry = DecodeTelemetry()
+    override val decodeStats: AsrDecodeStats get() = decodeTelemetry.snapshot()
     private val recognizer = OfflineRecognizer(config = OfflineRecognizerConfig(
         featConfig = FeatureConfig(sampleRate = 16000, featureDim = 128),
         modelConfig = OfflineModelConfig(qwen3Asr = OfflineQwen3AsrModelConfig(
@@ -33,7 +35,7 @@ class QwenVadEngine(dir: File, vadPath: String, threads: Int,
             try {
                 // Qwen's runtime prepends "language Chinese" to its decoder prompt.
                 stream.setOption("language", "Chinese")
-                stream.acceptWaveform(audio, 16000); recognizer.decode(stream)
+                stream.acceptWaveform(audio, 16000); decodeTelemetry.measure { recognizer.decode(stream) }
                 recognizer.getResult(stream).text.trim().takeIf { it.isNotBlank() }?.let(onFinal)
             } finally { stream.release(); audio.fill(0f) }
         }

@@ -11,6 +11,9 @@ import java.util.concurrent.*
 class QnnEngine(private val ctx: Context, private val language: String, private val threads: Int,
                 private val onPartial: (String) -> Unit, private val onFinal: (String) -> Unit,
                 private val onBackend: (String) -> Unit, private val onGap: () -> Unit) : AsrEngine {
+    @Volatile private var remoteDecodeStats = AsrDecodeStats()
+    private val decodeStatsAccumulator = DecodeStatsAccumulator()
+    override val decodeStats: AsrDecodeStats get() = decodeStatsAccumulator.snapshot(cpu?.decodeStats ?: remoteDecodeStats)
     @Volatile private var remote: IQnnRecognizer? = null
     private var remotePid = -1
     private var bound = false
@@ -48,6 +51,7 @@ class QnnEngine(private val ctx: Context, private val language: String, private 
         if (bound) { runCatching { ctx.unbindService(connection) }; bound = false }
     }
     private fun fallback(reason: Exception) {
+        decodeStatsAccumulator.retire(remoteDecodeStats)
         disconnect(); rpc.shutdownNow()
         if (reason is InterruptedException) throw reason
         ModelStore.verify(ctx, ModelCatalog.NEMOTRON)
@@ -59,16 +63,16 @@ class QnnEngine(private val ctx: Context, private val language: String, private 
         try {
             val result = call(5) { it.accept(samples) }
             onBackend("QNN/NPU · experimental")
-            val text = result.getString("text").orEmpty()
-            if (result.getBoolean("endpoint")) onFinal(text) else onPartial(text)
+            updateDecodeStats(result)
+            dispatch(result)
         } catch (t: Exception) { onGap(); fallback(t); cpu!!.accept(samples) }
     }
     override fun finish() {
         cpu?.let { it.finish(); return }
         try {
             val result = call(10) { it.finish() }
-            if (result.getBoolean("endpoint")) onFinal(result.getString("text").orEmpty())
-            onPartial("")
+            updateDecodeStats(result)
+            dispatch(result)
         } catch (t: Exception) {
             onGap()
             fallback(t)
@@ -78,5 +82,27 @@ class QnnEngine(private val ctx: Context, private val language: String, private 
     override fun release() {
         // Killing only the dedicated same-UID worker also handles a hung vendor call.
         disconnect(); rpc.shutdownNow(); cpu?.release(); cpu = null
+    }
+
+    private fun dispatch(result: Bundle) {
+        val types = result.getIntArray("event_types") ?: return
+        val texts = result.getStringArrayList("event_texts") ?: return
+        val count = minOf(types.size, texts.size)
+        val events = (0 until count).map { index ->
+            if (types[index] == 1) RecognitionEvent.Final(texts[index]) else RecognitionEvent.Partial(texts[index])
+        }
+        dispatchRecognitionEvents(events, onPartial, onFinal)
+    }
+
+    private fun updateDecodeStats(result: Bundle) {
+        remoteDecodeStats = AsrDecodeStats(
+            calls = result.getLong("decode_calls"),
+            totalNanos = result.getLong("decode_total_ns"),
+            meanNanos = result.getLong("decode_mean_ns"),
+            p50Nanos = result.getLong("decode_p50_ns"),
+            p95Nanos = result.getLong("decode_p95_ns"),
+            maxNanos = result.getLong("decode_max_ns"),
+            samplesNanos = result.getLongArray("decode_samples_ns")?.toList().orEmpty(),
+        )
     }
 }

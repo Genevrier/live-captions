@@ -21,6 +21,12 @@ internal class WorkerStartupBarrier(private val workers: Map<String, Boolean>) {
 
     @Synchronized fun failed(worker: String, cause: Throwable): Boolean = report(worker, cause)
 
+    /** Reports READY only after initialization completes, or FAILED before propagating an error. */
+    fun <T> initialize(worker: String, initializer: () -> T): T {
+        return try { initializer().also { ready(worker) } }
+        catch (t: Throwable) { failed(worker, t); throw t }
+    }
+
     private fun report(worker: String, cause: Throwable?): Boolean {
         require(worker in workers) { "Unknown startup worker: $worker" }
         if (!completed.add(worker)) return false
@@ -63,8 +69,8 @@ internal class SessionLifecycle(correctionEnabled: Boolean) {
     fun markAsrFinished() { asrFinished.set(true) }
     fun markCorrectionFinished() { correctionFinished.set(true) }
 
-    fun shouldFinishAsr(hasQueuedAudio: Boolean, captureFinished: Boolean): Boolean =
-        stopping.get() && captureFinished && !hasQueuedAudio
+    fun shouldFinishAsr(hasQueuedAudio: Boolean, captureFinished: Boolean, inferenceBusy: Boolean = false): Boolean =
+        stopping.get() && captureFinished && !hasQueuedAudio && !inferenceBusy
 
     fun shouldRunCorrection(hasQueuedWork: Boolean, busy: Boolean): Boolean =
         !cancelled.get() && (!stopping.get() || !asrFinished.get() || hasQueuedWork || busy)

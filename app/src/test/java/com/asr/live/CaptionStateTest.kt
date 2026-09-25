@@ -92,6 +92,24 @@ class CaptionStateTest {
         assertEquals(ListeningState.STARTING, CaptionState.lifecycle.value)
         CaptionState.stopped(newGeneration)
     }
+    @Test fun computedResultIsCountedOnlyAfterItIsPublishedAndRendered() {
+        val id = 995_304L
+        CaptionState.begin(id, SessionConfig(quality = TranslationQuality.ML_KIT), "Nemotron")
+        val row = CaptionState.source(id, "Goedemorgen", true, 1)!!
+        CaptionState.resultComputed(id, row.key, 1_000_000L)
+        assertTrue(CaptionState.translated(row.key, "Good morning", 2, true))
+        assertEquals(1L, CaptionState.metrics.value.resultsComputed)
+        assertEquals(0L, CaptionState.metrics.value.resultsDisplayed)
+
+        assertTrue(CaptionState.acknowledgeDisplayed(id, row.key, 4_500_000L))
+        assertFalse(CaptionState.acknowledgeDisplayed(id, row.key, 5_500_000L))
+        CaptionState.resultRejected(id, "stale translation revision")
+        assertEquals(1L, CaptionState.metrics.value.resultsDisplayed)
+        assertEquals(1L, CaptionState.metrics.value.resultsRejected)
+        assertEquals(3L, CaptionState.metrics.value.displayLatencyMs)
+        assertEquals(1, CaptionState.metrics.value.rejectionReasons["stale translation revision"])
+        CaptionState.stopped(id)
+    }
     @Test fun stoppingCancelsPendingCaptions() {
         val ledger = SegmentLedger(); ledger.start(1)
         val row = ledger.source(1, "partial", false, 0)!!

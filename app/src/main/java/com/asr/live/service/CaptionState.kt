@@ -1,5 +1,6 @@
 package com.asr.live.service
 
+import android.util.Log
 import com.asr.live.pipeline.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -7,8 +8,19 @@ import kotlinx.coroutines.flow.asStateFlow
 enum class ListeningState { STOPPED, STARTING, LISTENING, STOPPING }
 data class Performance(
     val asrMs: Long = 0, val asrRtf: Double = 0.0, val translationMs: Long = 0,
+    val asrComputeMs: Long = 0, val endpointWaitMs: Long? = null,
+    val decodeCalls: Long = 0, val decodeMeanMs: Double = 0.0,
+    val decodeP50Ms: Long = 0, val decodeP95Ms: Long = 0, val decodeMaxMs: Long = 0,
     val translationPrefillMs: Long = 0, val translationDecodeMs: Long = 0,
     val translationFirstTokenMs: Long = 0, val translationTokensPerSecond: Double = 0.0,
+    val correctionWaitMs: Long = 0,
+    val hyWaitMs: Long = 0, val hyComputeMs: Long = 0, val hyDisplayMs: Long = 0,
+    val opusBackend: String = "CPU",
+    val opusWaitMs: Long = 0, val opusComputeMs: Long = 0,
+    val opusPrefillMs: Long = 0, val opusGenerationMs: Long = 0,
+    val opusFirstTokenMs: Long = 0, val opusTokensPerSecond: Double = 0.0,
+    val resultsComputed: Long = 0, val resultsDisplayed: Long = 0, val resultsRejected: Long = 0,
+    val rejectionReasons: Map<String, Int> = emptyMap(), val displayLatencyMs: Long = 0,
     val audioToProvisionalMs: Long? = null, val stableToProvisionalMs: Long? = null,
     val audioToFinalMs: Long? = null, val finalLatencyMs: Long? = null,
     val audioDepth: Int = 0, val provisionalDepth: Int = 0, val finalDepth: Int = 0,
@@ -42,8 +54,11 @@ object CaptionState {
     private val _comparisons = MutableStateFlow<List<TranslationComparison>>(emptyList())
     val comparisons = _comparisons.asStateFlow()
     @Volatile private var generation = -1L
+    private val displayedKeys = mutableSetOf<SegmentKey>()
+    private val computedAtNs = mutableMapOf<SegmentKey, Long>()
+    private val computedRequestIds = mutableMapOf<SegmentKey, Long>()
     @Synchronized fun begin(id: Long, config: SessionConfig, modelName: String) {
-        generation = id; ledger.start(id); comparisonLedger.clear(); publish(); publishComparisons()
+        generation = id; ledger.start(id); comparisonLedger.clear(); displayedKeys.clear(); computedAtNs.clear(); computedRequestIds.clear(); publish(); publishComparisons()
         val translationLabel = if (config.opusBenchmarkEnabled)
             "OPUS provisional A/B + ${config.quality.label}" else config.quality.label
         _metrics.value = Performance(asr = modelName, translator = translationLabel, profile = config.profile.label, threads = config.threads,
@@ -86,6 +101,41 @@ object CaptionState {
     }
     @Synchronized fun metrics(id: Long, update: (Performance) -> Performance) {
         if (id == generation) _metrics.value = update(_metrics.value)
+    }
+    @Synchronized fun resultComputed(id: Long, key: SegmentKey, atNs: Long, requestId: Long = 0) {
+        if (id != generation || key.session != id) return
+        computedAtNs[key] = atNs
+        computedRequestIds[key] = requestId
+        while (computedAtNs.size > 300) {
+            val oldest = computedAtNs.keys.first()
+            computedAtNs.remove(oldest)
+            computedRequestIds.remove(oldest)
+        }
+        _metrics.value = _metrics.value.copy(resultsComputed = _metrics.value.resultsComputed + 1)
+    }
+    @Synchronized fun resultRejected(id: Long, reason: String) {
+        if (id != generation) return
+        val reasons = _metrics.value.rejectionReasons.toMutableMap()
+        reasons[reason] = (reasons[reason] ?: 0) + 1
+        while (reasons.size > 8) {
+            val oldest = reasons.minByOrNull { it.value }?.key ?: break
+            reasons.remove(oldest)
+        }
+        _metrics.value = _metrics.value.copy(resultsRejected = _metrics.value.resultsRejected + 1,
+            rejectionReasons = reasons)
+    }
+    /** Called by the Compose screen after a translated row has entered a rendered frame. */
+    @Synchronized fun acknowledgeDisplayed(id: Long, key: SegmentKey, atNs: Long): Boolean {
+        if (id != generation || key.session != id || key in displayedKeys) return false
+        val visible = ledger.snapshot().any { it.key == key && it.translation.isNotBlank() }
+        if (!visible) return false
+        displayedKeys += key
+        val latency = computedAtNs.remove(key)?.let { ((atNs - it) / 1_000_000L).coerceAtLeast(0) } ?: 0L
+        val requestId = computedRequestIds.remove(key) ?: 0L
+        runCatching { Log.d("CaptionPipeline", "session=$id segment=${key.id} revision=${key.revision} request=$requestId atNs=$atNs event=displayed") }
+        _metrics.value = _metrics.value.copy(resultsDisplayed = _metrics.value.resultsDisplayed + 1,
+            displayLatencyMs = latency)
+        return true
     }
     @Synchronized fun error(id: Long, text: String) { if (id == generation) _error.value = text }
     fun setError(text: String?) { _error.value = text }

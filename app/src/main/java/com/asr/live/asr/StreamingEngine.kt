@@ -23,6 +23,9 @@ class StreamingEngine(
     qnnLibraries: String? = null,
 ) : AsrEngine {
 
+    private val decodeTelemetry = DecodeTelemetry()
+    override val decodeStats: AsrDecodeStats get() = decodeTelemetry.snapshot()
+
     private val recognizer = OnlineRecognizer(
         config = OnlineRecognizerConfig(
             featConfig = FeatureConfig(sampleRate = SAMPLE_RATE, featureDim = 80),
@@ -56,7 +59,7 @@ class StreamingEngine(
 
     override fun accept(samples: FloatArray) {
         stream.acceptWaveform(samples, SAMPLE_RATE)
-        while (recognizer.isReady(stream)) recognizer.decode(stream)
+        while (recognizer.isReady(stream)) decodeTelemetry.measure { recognizer.decode(stream) }
 
         val text = recognizer.getResult(stream).text
         if (recognizer.isEndpoint(stream)) {
@@ -73,7 +76,7 @@ class StreamingEngine(
 
     override fun finish() {
         stream.inputFinished()
-        while (recognizer.isReady(stream)) recognizer.decode(stream)
+        while (recognizer.isReady(stream)) decodeTelemetry.measure { recognizer.decode(stream) }
         val text = recognizer.getResult(stream).text
         if (text.isNotBlank()) onFinal(text)
         onPartial("")

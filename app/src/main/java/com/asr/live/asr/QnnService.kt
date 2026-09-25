@@ -12,8 +12,7 @@ import java.util.concurrent.Executors
 class QnnService : Service() {
     private val worker = Executors.newSingleThreadExecutor()
     private var engine: StreamingEngine? = null
-    private var text = ""
-    private var endpoint = false
+    private var eventBuffer = RecognitionEventBuffer()
     private external fun configureDspPath(path: ByteArray)
     private val binder = object : IQnnRecognizer.Stub() {
         override fun pid() = Process.myPid()
@@ -25,22 +24,38 @@ class QnnService : Service() {
                 // Runtime asset is part of the signed APK, never remotely downloaded executable code.
                 assets.open("qnn/libQnnHtpV79Skel.so").use { input -> skel.outputStream().use { input.copyTo(it) } }
                 configureDspPath((dsp.absolutePath + ";" + applicationInfo.nativeLibraryDir + ";/vendor/lib/rfsa/adsp;/vendor/dsp;/system/lib/rfsa/adsp").toByteArray())
+                eventBuffer = RecognitionEventBuffer()
                 engine = StreamingEngine(File(directory), ModelCatalog.NEMOTRON_QNN,
-                    { text = it }, { text = it; endpoint = true }, language, threads,
+                    { eventBuffer.partial(it) }, { eventBuffer.final(it) }, language, threads,
                     applicationInfo.nativeLibraryDir)
             }.get()
         }
         override fun accept(samples: FloatArray): Bundle = worker.submit<Bundle> {
-            endpoint = false; text = ""
+            eventBuffer = RecognitionEventBuffer()
             engine!!.accept(samples)
-            Bundle().apply { putString("text", text); putBoolean("endpoint", endpoint) }
+            resultBundle()
         }.get()
         override fun finish(): Bundle = worker.submit<Bundle> {
-            endpoint = false; text = ""
+            eventBuffer = RecognitionEventBuffer()
             engine!!.finish()
-            Bundle().apply { putString("text", text); putBoolean("endpoint", endpoint) }
+            resultBundle()
         }.get()
         override fun shutdown() { worker.submit { engine?.release(); engine = null }.get() }
+    }
+    private fun resultBundle(): Bundle {
+        val events = eventBuffer.snapshot()
+        val stats = engine?.decodeStats ?: AsrDecodeStats()
+        return Bundle().apply {
+            putIntArray("event_types", events.map { if (it is RecognitionEvent.Final) 1 else 0 }.toIntArray())
+            putStringArrayList("event_texts", ArrayList(events.map { it.text }))
+            putLong("decode_calls", stats.calls)
+            putLong("decode_total_ns", stats.totalNanos)
+            putLong("decode_mean_ns", stats.meanNanos)
+            putLong("decode_p50_ns", stats.p50Nanos)
+            putLong("decode_p95_ns", stats.p95Nanos)
+            putLong("decode_max_ns", stats.maxNanos)
+            putLongArray("decode_samples_ns", stats.samplesNanos.toLongArray())
+        }
     }
     override fun onBind(intent: Intent?) = binder
     override fun onDestroy() {

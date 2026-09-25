@@ -90,6 +90,9 @@ fun CaptionScreen(vm: CaptionViewModel, hasAudioPermission: Boolean, onRequestPe
             LazyColumn(Modifier.weight(1f).fillMaxWidth(), state = list, verticalArrangement = Arrangement.spacedBy(12.dp), contentPadding = PaddingValues(bottom = 12.dp)) {
                 if (lines.isEmpty()) item { Text(if (stopped) "Download models, then tap Listen." else "${lifecycle.name.lowercase()}…", Modifier.padding(vertical = 24.dp)) }
                 items(lines, key = { it.key.id }) { caption ->
+                    if (caption.translation.isNotBlank()) LaunchedEffect(caption.key, caption.translation) {
+                        vm.acknowledgeDisplayed(caption.key)
+                    }
                     Card(colors = CardDefaults.cardColors(containerColor = if (caption.stage == CaptionStage.PROVISIONAL)
                         MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceVariant)) {
                         Column(Modifier.fillMaxWidth().padding(14.dp)) {
@@ -262,10 +265,20 @@ fun CaptionScreen(vm: CaptionViewModel, hasAudioPermission: Boolean, onRequestPe
 @Composable
 private fun PerformancePanel(m: Performance) {
     val text = "${m.performanceMode} · ${m.profile}\nASR: ${m.asr.ifBlank { "Not running" }} · ${m.backend} · chunk ${m.chunk}\n" +
-        "Translator: ${m.translator} · ${m.translationBackend}\nASR ${m.asrMs} ms · RTF ${"%.2f".format(m.asrRtf)}\n" +
-        "Translation ${m.translationMs} ms · TTFT ${m.translationFirstTokenMs} ms · prefill ${m.translationPrefillMs} · " +
-        "decode ${m.translationDecodeMs} ms · ${"%.1f".format(m.translationTokensPerSecond)} tok/s\n" +
+        "Translator: ${m.translator} · ${m.translationBackend}\nASR last input callback ${m.asrMs} ms · RTF ${"%.2f".format(m.asrRtf)}\n" +
+        "ASR compute ${m.asrComputeMs} ms total · phrase-end wait ${m.endpointWaitMs?.let { "$it ms" } ?: "—"}\n" +
+        "Native decode calls ${m.decodeCalls} · mean ${"%.2f".format(m.decodeMeanMs)} ms · " +
+        "p50/p95 ${m.decodeP50Ms}/${m.decodeP95Ms} ms · max ${m.decodeMaxMs} ms\n" +
+        "Hy wait ${m.hyWaitMs} ms · compute ${m.hyComputeMs} ms · state publish ${m.hyDisplayMs} ms · " +
+        "prefill ${m.translationPrefillMs} ms · generation ${m.translationDecodeMs} ms · " +
+        "TTFT ${m.translationFirstTokenMs} ms · ${"%.1f".format(m.translationTokensPerSecond)} tok/s\n" +
+        "OPUS (${m.opusBackend}) wait ${m.opusWaitMs} ms · compute ${m.opusComputeMs} ms · prefill ${m.opusPrefillMs} ms · " +
+        "generation ${m.opusGenerationMs} ms · TTFT ${m.opusFirstTokenMs} ms · " +
+        "${"%.1f".format(m.opusTokensPerSecond)} tok/s\n" +
         "Correction ${m.correctionMs} ms / RTF ${"%.2f".format(m.correctionRtf)} · ${m.correctionThreads} threads · skipped ${m.skippedCorrections}\n" +
+        "Correction wait ${m.correctionWaitMs} ms · caption results computed/displayed/rejected " +
+        "${m.resultsComputed}/${m.resultsDisplayed}/${m.resultsRejected} · display ${m.displayLatencyMs} ms\n" +
+        (if (m.rejectionReasons.isEmpty()) "" else "Rejected: ${m.rejectionReasons.entries.joinToString { "${it.key}=${it.value}" }}\n") +
         "Segment audio → provisional ${m.audioToProvisionalMs?.let { "$it ms" } ?: "—"} · " +
         "stable prefix → provisional ${m.stableToProvisionalMs?.let { "$it ms" } ?: "—"}\n" +
         "Segment audio → final ${m.audioToFinalMs?.let { "$it ms" } ?: "—"} · " +
