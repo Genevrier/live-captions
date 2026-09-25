@@ -13,6 +13,14 @@ data class Performance(
     val decodeP50Ms: Long = 0, val decodeP95Ms: Long = 0, val decodeMaxMs: Long = 0,
     val translationPrefillMs: Long = 0, val translationDecodeMs: Long = 0,
     val translationFirstTokenMs: Long = 0, val translationTokensPerSecond: Double = 0.0,
+    val translationInputTokens: Long = 0, val translationOutputTokens: Long = 0,
+    val translationCacheTokens: Long = 0, val translationFirstVisibleMs: Long = 0,
+    val translationCompleteMs: Long = 0, val translationPrefillDecodeUs: Long = 0,
+    val translationPrefillSyncUs: Long = 0, val translationSamplingUs: Long = 0,
+    val translationDecodeComputeUs: Long = 0,
+    val translationDecodeSyncUs: Long = 0, val translationDeviceBytes: Long = 0,
+    val translationOffloadedLayers: Long = 0, val translationTotalLayers: Long = 0,
+    val translationFallbackCount: Long = 0,
     val correctionWaitMs: Long = 0,
     val hyWaitMs: Long = 0, val hyComputeMs: Long = 0, val hyDisplayMs: Long = 0,
     val opusBackend: String = "CPU",
@@ -34,6 +42,7 @@ data class Performance(
     val asr: String = "", val translator: String = "ML Kit", val backend: String = "CPU",
     val correctionThreads: Int = 4,
     val translationBackend: String = "CPU", val thermalStatus: String = "Unknown",
+    val translationThreads: Int = 4,
     val adpfActive: Boolean = false,
     val profile: String = "Dutch → English", val chunk: String = "560 ms", val threads: Int = 6,
 )
@@ -66,6 +75,7 @@ object CaptionState {
         val translationLabel = if (config.opusBenchmarkEnabled)
             "OPUS provisional A/B + ${config.quality.label}" else config.quality.label
         _metrics.value = Performance(asr = modelName, translator = translationLabel, profile = config.profile.label, threads = config.threads,
+            translationThreads = config.translationThreads,
             performanceMode = config.performanceMode.label, correctionThreads = config.correctionThreads,
             backend = if (config.qnn) "QNN initializing · experimental" else "CPU",
             translationBackend = if (config.gpuTranslation && com.asr.live.BuildConfig.OPENCL_ENABLED)

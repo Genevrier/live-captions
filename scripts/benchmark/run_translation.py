@@ -83,6 +83,13 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--mode", choices=("hy", "opus"), required=True)
     parser.add_argument("--bundle", help="Pinned translation bundle ID; defaults to Hy 7B Q4_K_M or Dutch→English OPUS")
+    parser.add_argument("--native-backend", choices=("cpu", "opencl"), default="cpu",
+                        help="Requested native backend for both matched CPU/OpenCL runs")
+    parser.add_argument("--threads", type=int, help="Native inference threads; defaults to the production choice")
+    parser.add_argument("--batch", type=int, default=256)
+    parser.add_argument("--ubatch", type=int, default=128)
+    parser.add_argument("--cache-ab", action="store_true",
+                        help="For Hy, compare uncached cold and repeated same-prompt warm output/timings")
     parser.add_argument("--split", choices=("tuning", "validation", "final_holdout"), default="tuning")
     parser.add_argument("--allow-final-holdout", action="store_true")
     parser.add_argument("--manifest", type=Path, default=Path("build/benchmark-data/manifest.json"))
@@ -142,11 +149,16 @@ def main() -> None:
     bundle = next(item for item in lock["bundles"] if item["id"] == bundle_id)
     model_dir = ensure_bundle(args.model_root, bundle)
     model_arg = str(model_dir / "model.gguf") if args.mode == "hy" else str(model_dir)
-    threads = 4 if args.mode == "hy" else 2  # CaptionSession's Max Quality CPU choices.
+    threads = args.threads if args.threads is not None else (4 if args.mode == "hy" else 2)
+    if threads < 1 or args.batch < 1 or args.ubatch < 1 or args.ubatch > args.batch:
+        raise SystemExit("threads, batch and ubatch must be positive, with ubatch <= batch")
     config = {
         "mode": args.mode, "bundle": bundle_id, "revision": bundle["revision"],
         "license": bundle["license"], "assets": bundle["files"],
-        "threads": threads, "backend": "CPU; no Adreno/OpenCL device in this runner",
+        "threads": threads, "batch": args.batch, "ubatch": args.ubatch,
+        "requested_backend": args.native_backend,
+        "backend_note": "The host runner has no Adreno OpenCL device; the runtime backend field reports actual selection/fallback.",
+        "cache_ab": args.cache_ab,
         "source": f"run-1 hypotheses from the frozen Nemotron {args.split} ASR run",
         "reference": "parallel human-produced FLEURS English reference; translation quality is approximate",
         "dataset_revision": manifest["revision"], "split": args.split,
@@ -164,8 +176,12 @@ def main() -> None:
         log_path = args.out / f"run-{run}.log"
         start = time.perf_counter()
         with log_path.open("w") as log:
-            subprocess.run([str(args.binary.resolve()), args.mode, model_arg, str(threads),
-                            str((args.out / "cases.jsonl").resolve()), str(output_path.resolve())],
+            command = [str(args.binary.resolve()), args.mode, model_arg, str(threads),
+                       str((args.out / "cases.jsonl").resolve()), str(output_path.resolve()),
+                       args.native_backend, str(args.batch), str(args.ubatch)]
+            if args.cache_ab:
+                command.append("cache-ab")
+            subprocess.run(command,
                            stdout=log, stderr=subprocess.STDOUT, check=True)
         wall_ms = (time.perf_counter() - start) * 1000
         results = [json.loads(line) for line in output_path.read_text().splitlines() if line]
@@ -202,6 +218,27 @@ def main() -> None:
         "hy_prefill_ms": percentile_summary([row["prefill_ms"] for row in all_results]) if args.mode == "hy" else None,
         "hy_decode_ms": percentile_summary([row["decode_ms"] for row in all_results]) if args.mode == "hy" else None,
         "hy_first_token_ms": percentile_summary([row["first_token_ms"] for row in all_results]) if args.mode == "hy" else None,
+        "hy_first_visible_ms": percentile_summary([row["first_visible_ms"] for row in all_results]) if args.mode == "hy" else None,
+        "hy_complete_ms": percentile_summary([row["complete_ms"] for row in all_results]) if args.mode == "hy" else None,
+        "hy_input_tokens": percentile_summary([row["input_tokens"] for row in all_results]) if args.mode == "hy" else None,
+        "hy_output_tokens": percentile_summary([row["output_tokens"] for row in all_results]) if args.mode == "hy" else None,
+        "hy_cache_reused_tokens": percentile_summary([row["cache_reused_tokens"] for row in all_results]) if args.mode == "hy" else None,
+        "hy_prefill_decode_us": percentile_summary([row["prefill_decode_us"] for row in all_results]) if args.mode == "hy" else None,
+        "hy_prefill_sync_us": percentile_summary([row["prefill_sync_us"] for row in all_results]) if args.mode == "hy" else None,
+        "hy_sampling_us": percentile_summary([row["sampling_us"] for row in all_results]) if args.mode == "hy" else None,
+        "hy_decode_compute_us": percentile_summary([row["decode_compute_us"] for row in all_results]) if args.mode == "hy" else None,
+        "hy_decode_sync_us": percentile_summary([row["decode_sync_us"] for row in all_results]) if args.mode == "hy" else None,
+        "hy_offloaded_layers": sorted(set(row["offloaded_layers"] for row in all_results)) if args.mode == "hy" else None,
+        "hy_device_bytes_allocated": sorted(set(row["device_bytes_allocated"] for row in all_results)) if args.mode == "hy" else None,
+        "hy_fallback_count": sorted(set(row["fallback_count"] for row in all_results)) if args.mode == "hy" else None,
+        "hy_cold_elapsed_ms": percentile_summary([row["cold_elapsed_us"] / 1000 for row in all_results
+            if row.get("cache_ab") and row["cold_elapsed_us"] >= 0]) if args.mode == "hy" and args.cache_ab else None,
+        "hy_cold_first_visible_ms": percentile_summary([row["cold_first_visible_ms"] for row in all_results
+            if row.get("cache_ab")]) if args.mode == "hy" and args.cache_ab else None,
+        "hy_warm_elapsed_ms": percentile_summary([row["warm_elapsed_us"] / 1000 for row in all_results
+            if row.get("cache_ab") and row["warm_elapsed_us"] >= 0]) if args.mode == "hy" and args.cache_ab else None,
+        "hy_warm_first_visible_ms": percentile_summary([row["warm_first_visible_ms"] for row in all_results
+            if row.get("cache_ab")]) if args.mode == "hy" and args.cache_ab else None,
         "hy_tokens_per_second": percentile_summary([
             row["output_tokens"] * 1000 / max(1, row["decode_ms"]) for row in all_results
         ]) if args.mode == "hy" else None,

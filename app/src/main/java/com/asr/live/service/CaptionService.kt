@@ -100,6 +100,7 @@ class CaptionService : Service() {
             quality = TranslationQuality.entries.firstOrNull { it.name == intent.getStringExtra("quality") } ?: TranslationQuality.HY_Q8,
             qnn = intent.getBooleanExtra("qnn", false),
             gpuTranslation = intent.getBooleanExtra("gpuTranslation", com.asr.live.BuildConfig.OPENCL_ENABLED),
+            translationThreads = intent.getIntExtra("translationThreads", 4).let { if (it in setOf(2, 4)) it else 4 },
             translationBatch = intent.getIntExtra("translationBatch", 256).let { if (it in setOf(128, 256, 512)) it else 256 },
             translationUbatch = intent.getIntExtra("translationUbatch", 128).let { if (it in setOf(64, 128, 256)) it else 128 },
             correction = intent.getBooleanExtra("correction", false),
@@ -237,6 +238,7 @@ class CaptionService : Service() {
                 .putExtra("profile", config.profile.name).putExtra("performanceMode", config.performanceMode.name).putExtra("model", config.modelId)
                 .putExtra("threads", config.threads).putExtra("correctionThreads", config.correctionThreads)
                 .putExtra("gpuTranslation", config.gpuTranslation).putExtra("quality", config.quality.name)
+                .putExtra("translationThreads", config.translationThreads)
                 .putExtra("translationBatch", config.translationBatch).putExtra("translationUbatch", config.translationUbatch)
                 .putExtra("qnn", config.qnn).putExtra("correction", config.correction).putExtra("glossary", config.glossary))
         }

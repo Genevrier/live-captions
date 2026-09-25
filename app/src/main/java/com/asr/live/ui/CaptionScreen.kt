@@ -237,11 +237,11 @@ fun CaptionScreen(vm: CaptionViewModel, hasAudioPermission: Boolean, onRequestPe
             Text(if (config.profile.correctionSupported) "Optional second hypothesis; skipped under load. CPU performance is device dependent." else "Parakeet correction is unavailable for Mandarin.", style = MaterialTheme.typography.bodySmall)
             HorizontalDivider(Modifier.padding(vertical = 12.dp))
             Text("On-device translation autotune / A-B", style = MaterialTheme.typography.titleMedium)
-            Text("Runs installed Hy-MT2 7B Q4_K_M, Q5_K_M, Q6_K and Q8_0 (reference) with CPU and Adreno OpenCL, warms the model, then repeats your sentence five times. Q4_0 is unavailable because no verified Hy-MT2 7B asset is pinned. It stores the fastest exact-match configuration against the Q6 CPU output for this device. Test representative sentences; this consistency gate is not a translation-quality score or sustained-load test.", style = MaterialTheme.typography.bodySmall)
+            Text("Measures installed Hy-MT2 1.8B Q4_K_M, then 7B Q4_K_M, then the 7B Q6 CPU reference and your selected model. It compares CPU and Adreno OpenCL on identical text at 2-thread 128/64 and 4-thread 256/128 settings, then checks a 4-thread 512/128 variant. It records actual layer placement, device free-memory delta and fallback, token counts, prefill/decode/synchronization, first visible word and EOS completion. After warm-up it repeats your sentences five times. Exact text matching is a consistency check, not a translation-quality or sustained-load score. The benchmark never changes your selected model.", style = MaterialTheme.typography.bodySmall)
             OutlinedTextField(benchmarkText, { benchmarkText = it.take(1000) }, label = { Text("Source sentences, one per line") },
                 placeholder = { Text("Run several representative sentences for safer tuning") }, minLines = 2, enabled = stopped && !benchmarkBusy)
             TextButton(onClick = { vm.benchmarkTranslation(benchmarkText) }, enabled = stopped && !busy && !benchmarkBusy) { Text(if (benchmarkBusy) "Warming / benchmarking…" else "Run on-device autotune") }
-            benchmark.forEach { result -> Text("${result.model} · ${if (result.requestedOpenCl) "OpenCL requested" else "CPU requested"}: ${result.error ?: "${result.backend} · load ${result.loadMs} ms · avg ${result.elapsedMs} / p95 ${result.p95Ms} ms · prefill ${result.prefillMs} / decode ${result.decodeMs} ms · batch ${result.batch}/${result.ubatch} · ${if (result.qualityMatched == true) "matches Q6 CPU" else "different from Q6 CPU"} · PSS ${result.rssMiB} MiB · available ${result.availableMiB} MiB\n${result.output}"}", style = MaterialTheme.typography.bodySmall) }
+            benchmark.forEach { result -> Text("${result.model} · ${if (result.requestedOpenCl) "OpenCL requested" else "CPU requested"}: ${result.error ?: "${result.backend} · load ${result.loadMs} ms · avg ${result.elapsedMs} / p95 ${result.p95Ms} ms · prefill ${result.prefillMs} / decode ${result.decodeMs} ms · first visible ${result.firstVisibleMs} / complete ${result.completeMs} ms · tokens in/out ${result.inputTokens}/${result.outputTokens} · KV prefix ${result.cacheReusedTokens} · prefill decode/sync ${result.prefillDecodeUs}/${result.prefillSyncUs} µs · generation decode/sync/sample ${result.decodeComputeUs}/${result.decodeSyncUs}/${result.samplingUs} µs · placement ${result.offloadedLayers}/${result.totalLayers} layers (${result.deviceBytesAllocated / (1024 * 1024)} MiB free-memory delta), fallbacks ${result.fallbackCount} · ${result.threads} threads, batch ${result.batch}/${result.ubatch} · ${when (result.qualityMatched) { true -> "matches Q6 CPU"; false -> "differs from Q6 CPU"; null -> "Q6 CPU comparison unavailable" }} · PSS ${result.rssMiB} MiB · available ${result.availableMiB} MiB\n${result.output}"}", style = MaterialTheme.typography.bodySmall) }
             Text("Audio stays in memory and is never uploaded or saved.", style = MaterialTheme.typography.bodySmall)
         }
     })
@@ -274,13 +274,19 @@ fun CaptionScreen(vm: CaptionViewModel, hasAudioPermission: Boolean, onRequestPe
 @Composable
 private fun PerformancePanel(m: Performance) {
     val text = "${m.performanceMode} · ${m.profile}\nASR: ${m.asr.ifBlank { "Not running" }} · ${m.backend} · chunk ${m.chunk}\n" +
-        "Translator: ${m.translator} · ${m.translationBackend}\nASR last input callback ${m.asrMs} ms · RTF ${"%.2f".format(m.asrRtf)}\n" +
+        "Translator: ${m.translator} · ${m.translationBackend} · ${m.translationThreads} threads\nASR last input callback ${m.asrMs} ms · RTF ${"%.2f".format(m.asrRtf)}\n" +
         "ASR compute ${m.asrComputeMs} ms total · phrase-end wait ${m.endpointWaitMs?.let { "$it ms" } ?: "—"}\n" +
         "Native decode calls ${m.decodeCalls} · mean ${"%.2f".format(m.decodeMeanMs)} ms · " +
         "p50/p95 ${m.decodeP50Ms}/${m.decodeP95Ms} ms · max ${m.decodeMaxMs} ms\n" +
         "Hy wait ${m.hyWaitMs} ms · compute ${m.hyComputeMs} ms · state publish ${m.hyDisplayMs} ms · " +
         "prefill ${m.translationPrefillMs} ms · generation ${m.translationDecodeMs} ms · " +
-        "TTFT ${m.translationFirstTokenMs} ms · ${"%.1f".format(m.translationTokensPerSecond)} tok/s\n" +
+        "input/output ${m.translationInputTokens}/${m.translationOutputTokens} tokens · KV prefix ${m.translationCacheTokens} · " +
+        "TTFT/first visible/complete ${m.translationFirstTokenMs}/${m.translationFirstVisibleMs}/${m.translationCompleteMs} ms · " +
+        "prefill decode/sync ${m.translationPrefillDecodeUs}/${m.translationPrefillSyncUs} µs · " +
+        "generation decode/sync/sample ${m.translationDecodeComputeUs}/${m.translationDecodeSyncUs}/${m.translationSamplingUs} µs · " +
+        "${"%.1f".format(m.translationTokensPerSecond)} tok/s\n" +
+        "OpenCL placement ${m.translationOffloadedLayers}/${m.translationTotalLayers} layers · " +
+        "${m.translationDeviceBytes / (1024 * 1024)} MiB net device free-memory delta · fallback count ${m.translationFallbackCount}\n" +
         "OPUS (${m.opusBackend}) wait ${m.opusWaitMs} ms · compute ${m.opusComputeMs} ms · prefill ${m.opusPrefillMs} ms · " +
         "generation ${m.opusGenerationMs} ms · TTFT ${m.opusFirstTokenMs} ms · " +
         "${"%.1f".format(m.opusTokensPerSecond)} tok/s\n" +

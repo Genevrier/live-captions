@@ -492,7 +492,7 @@ class CaptionSession(
             error("Not enough available RAM to keep selected models resident with 2 GiB system headroom")
         val preferOpenCl = config.gpuTranslation && com.asr.live.BuildConfig.OPENCL_ENABLED
         return NativeTranslator(java.io.File(directory, "model.gguf"),
-            minOf(config.threads, 4), false, config.profile, config.glossary,
+            config.translationThreads, false, config.profile, config.glossary,
             preferOpenCl, ctx.getDir("llama-opencl-cache", Context.MODE_PRIVATE),
             config.translationBatch, config.translationUbatch)
     }
@@ -553,7 +553,18 @@ class CaptionSession(
                 val isFinal = request.isFinal
                 if (isFinal) activeFinalEndpoint = request.endpointAt
                 try {
-                    val result = engine.translate(request.text, request.requestId)
+                    val result = engine.translate(request.text, request.requestId, request.key.session,
+                        request.key.id, request.key.revision) { progress ->
+                        if (!request.benchmarkOnly && request.correctionSource == null &&
+                            progress.provisional && progress.sessionId == request.key.session &&
+                            progress.segmentId == request.key.id && progress.revision == request.key.revision &&
+                            !lifecycle.isCancelled()) {
+                            val shown = CaptionState.translatedPortion(request.key, request.portionIdentity,
+                                progress.text, 0, false, request.requestId)
+                            if (shown) trace("hy-progress-displayed", request.key, request.requestId,
+                                "elapsedMs=${progress.elapsedMs}")
+                        }
+                    }
                     if (lifecycle.isCancelled()) break
                     val computedAtNs = nowNs()
                     val elapsed = (computedAtNs - startedNs) / 1_000_000L
@@ -581,6 +592,18 @@ class CaptionSession(
                         hyComputeMs = elapsed, hyDisplayMs = displayMs, hyWaitMs = queueWaitMs,
                         translationPrefillMs = timings.prefillMs, translationDecodeMs = timings.decodeMs,
                         translationFirstTokenMs = timings.firstTokenMs,
+                        translationInputTokens = timings.inputTokens, translationOutputTokens = timings.outputTokens,
+                        translationCacheTokens = timings.cacheReusedTokens,
+                        translationFirstVisibleMs = timings.firstVisibleMs, translationCompleteMs = timings.completeMs,
+                        translationPrefillDecodeUs = timings.prefillDecodeUs,
+                        translationPrefillSyncUs = timings.prefillSyncUs,
+                        translationSamplingUs = timings.samplingUs,
+                        translationDecodeComputeUs = timings.decodeComputeUs,
+                        translationDecodeSyncUs = timings.decodeSyncUs,
+                        translationDeviceBytes = timings.deviceBytesAllocated,
+                        translationOffloadedLayers = timings.offloadedLayers,
+                        translationTotalLayers = timings.totalLayers,
+                        translationFallbackCount = timings.fallbackCount,
                         translationTokensPerSecond = timings.tokensPerSecond,
                         translationBackend = engine.backend,
                         audioToProvisionalMs = if (accepted && !isFinal) elapsedSinceNs(request.sourceAudioAtNs) else m.audioToProvisionalMs,

@@ -10,7 +10,7 @@ a = p.parse_args()
 cache = pathlib.Path(a.cache); cache.mkdir(parents=True, exist_ok=True)
 lock = json.loads((root / 'app/src/main/assets/translation-models.json').read_text())
 for bundle in lock['bundles']:
-    if bundle['id'] not in ('hymt2-Q8_0', 'opus-nl-en', 'opus-en-fr'): continue
+    if bundle['id'] not in ('hymt2-Q4_K_M', 'opus-nl-en', 'opus-en-fr'): continue
     directory = cache / bundle['id']; directory.mkdir(parents=True, exist_ok=True)
     for asset in bundle['files']:
         path = directory / asset['path']
@@ -23,4 +23,4 @@ for bundle in lock['bundles']:
             if not valid(part): raise RuntimeError('Model checksum mismatch: ' + str(part))
             part.replace(path)
         print('Verified', bundle['id'], asset['path'], flush=True)
-subprocess.run([a.binary, str(cache / 'hymt2-Q8_0/model.gguf'), str(cache / 'opus-nl-en'), str(cache / 'opus-en-fr')], check=True)
+subprocess.run([a.binary, str(cache / 'hymt2-Q4_K_M/model.gguf'), str(cache / 'opus-nl-en'), str(cache / 'opus-en-fr')], check=True)

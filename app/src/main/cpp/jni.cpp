@@ -8,17 +8,44 @@ static std::string utf8(JNIEnv * env, jbyteArray bytes) {
     env->GetByteArrayRegion(bytes, 0, result.size(), reinterpret_cast<jbyte *>(result.data()));
     return result;
 }
-static void fail(JNIEnv * env, const std::exception & e) { env->ThrowNew(env->FindClass("java/lang/IllegalStateException"), e.what()); }
+static void fail(JNIEnv * env, const std::exception & e) {
+    if (!env->ExceptionCheck()) env->ThrowNew(env->FindClass("java/lang/IllegalStateException"), e.what());
+}
 extern "C" JNIEXPORT jlong JNICALL Java_com_asr_live_i18n_NativeTranslator_load(JNIEnv * env, jobject, jbyteArray path, jint threads, jint batch, jint ubatch, jboolean opus, jboolean preferOpenCL, jbyteArray cacheDir) {
     try { return reinterpret_cast<jlong>((opus ? load_opus(utf8(env, path), threads) :
         load_hymt(utf8(env, path), threads, batch, ubatch, preferOpenCL, cacheDir ? utf8(env, cacheDir) : "")).release()); }
     catch (const std::exception & e) { fail(env, e); return 0; }
 }
-extern "C" JNIEXPORT jbyteArray JNICALL Java_com_asr_live_i18n_NativeTranslator_run(JNIEnv * env, jobject, jlong handle, jbyteArray text) {
+extern "C" JNIEXPORT jbyteArray JNICALL Java_com_asr_live_i18n_NativeTranslator_run(
+        JNIEnv * env, jobject, jlong handle, jbyteArray text, jlong sessionId, jlong segmentId,
+        jint revision, jbyteArray cacheScope, jobject callback) {
     try {
-        auto result = reinterpret_cast<TranslationEngine *>(handle)->translate(utf8(env, text));
+        TranslationRequestMetadata request{sessionId, segmentId, revision,
+            cacheScope ? utf8(env, cacheScope) : std::string{}};
+        TranslationProgressCallback progress;
+        jclass callbackClass = nullptr;
+        jmethodID progressMethod = nullptr;
+        if (callback) {
+            callbackClass = env->GetObjectClass(callback);
+            progressMethod = env->GetMethodID(callbackClass, "onProgress", "(JJIJ[B)V");
+            if (!progressMethod) throw std::runtime_error("Native progress callback method is unavailable");
+            progress = [env, callback, progressMethod](const TranslationProgress & event) {
+                jbyteArray bytes = env->NewByteArray(static_cast<jsize>(event.text.size()));
+                if (!bytes) return;
+                env->SetByteArrayRegion(bytes, 0, static_cast<jsize>(event.text.size()),
+                    reinterpret_cast<const jbyte *>(event.text.data()));
+                if (!env->ExceptionCheck()) env->CallVoidMethod(callback, progressMethod,
+                    static_cast<jlong>(event.session_id), static_cast<jlong>(event.segment_id),
+                    static_cast<jint>(event.revision), static_cast<jlong>(event.elapsed_ms), bytes);
+                env->DeleteLocalRef(bytes);
+                if (env->ExceptionCheck()) throw std::runtime_error("Native progress callback failed");
+            };
+        }
+        auto result = reinterpret_cast<TranslationEngine *>(handle)->translateWithProgress(
+            utf8(env, text), request, progress);
         auto bytes = env->NewByteArray(result.size());
         if (bytes) env->SetByteArrayRegion(bytes, 0, result.size(), reinterpret_cast<const jbyte *>(result.data()));
+        if (callbackClass) env->DeleteLocalRef(callbackClass);
         return bytes;
     } catch (const std::exception & e) { fail(env, e); return nullptr; }
 }
@@ -30,9 +57,12 @@ extern "C" JNIEXPORT jstring JNICALL Java_com_asr_live_i18n_NativeTranslator_bac
 }
 extern "C" JNIEXPORT jlongArray JNICALL Java_com_asr_live_i18n_NativeTranslator_stats(JNIEnv * env, jobject, jlong handle) {
     const auto stats = reinterpret_cast<TranslationEngine *>(handle)->stats();
-    const jlong values[] = {stats.prefill_ms, stats.decode_ms, stats.first_token_ms, stats.output_tokens};
-    jlongArray result = env->NewLongArray(4);
-    if (result) env->SetLongArrayRegion(result, 0, 4, values);
+    const jlong values[] = {stats.prefill_ms, stats.decode_ms, stats.first_token_ms, stats.output_tokens,
+        stats.input_tokens, stats.cache_reused_tokens, stats.prefill_decode_us, stats.prefill_sync_us,
+        stats.sampling_us, stats.decode_compute_us, stats.decode_sync_us, stats.first_visible_ms, stats.complete_ms,
+        stats.device_bytes_allocated, stats.offloaded_layers, stats.total_layers, stats.fallback_count};
+    jlongArray result = env->NewLongArray(17);
+    if (result) env->SetLongArrayRegion(result, 0, 17, values);
     return result;
 }
 

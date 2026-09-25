@@ -24,8 +24,11 @@ Selecting a preset never silently enables an untested accelerator.
 The 7B model requires 2 GiB of available system memory beyond its estimated model
 and ASR file sizes; low-memory devices should choose a smaller model explicitly.
 
-Hy-MT2 uses the selected native CPU/OpenCL backend, resets its context per request,
-and supports an optional `source -> target` glossary. OPUS is only loaded in the
+Hy-MT2 uses the selected native CPU/OpenCL backend and reuses only the identical
+prompt-token KV prefix within the same session/configuration; generated and divergent
+tokens are removed before the next request. It streams UTF-8 word-boundary previews
+and reports first-visible separately from EOS completion. It supports an optional
+`source -> target` glossary. OPUS is only loaded in the
 explicit Ultra Low Latency A/B profile and uses SentencePiece,
 separate encoder execution and a merged decoder with cached self/cross attention.
 Q6_K and Q4_K_M are selectable memory/speed alternatives; all three quantizations

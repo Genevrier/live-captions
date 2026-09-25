@@ -1,5 +1,6 @@
 #include "translation.hpp"
 #include "llama.h"
+#include "ggml-backend.h"
 #include "onnxruntime_cxx_api.h"
 #include "sentencepiece_processor.h"
 #include "nlohmann/json.hpp"
@@ -7,12 +8,16 @@
 #include <array>
 #include <cctype>
 #include <chrono>
+#include <cstdio>
 #include <cstdlib>
 #include <fstream>
+#include <functional>
 #include <limits>
 #include <mutex>
+#include <sstream>
 #include <stdexcept>
 #include <string>
+#include <utility>
 #include <vector>
 
 using json = nlohmann::json;
@@ -23,6 +28,88 @@ namespace {
 using Model = std::unique_ptr<llama_model, decltype(&llama_model_free)>;
 using Context = std::unique_ptr<llama_context, decltype(&llama_free)>;
 using Sampler = std::unique_ptr<llama_sampler, decltype(&llama_sampler_free)>;
+
+std::once_flag loggerInstallOnce;
+ggml_log_callback previousLlamaLogger = nullptr;
+void * previousLlamaLoggerData = nullptr;
+thread_local std::string * modelLoadLog = nullptr;
+
+void captureLlamaLog(ggml_log_level level, const char * text, void *) {
+    if (modelLoadLog && text) modelLoadLog->append(text);
+    if (previousLlamaLogger) previousLlamaLogger(level, text, previousLlamaLoggerData);
+    else if (text) std::fputs(text, stderr);
+}
+
+void installLlamaLogCapture() {
+    std::call_once(loggerInstallOnce, [] {
+        llama_log_get(&previousLlamaLogger, &previousLlamaLoggerData);
+        llama_log_set(captureLlamaLog, nullptr);
+    });
+}
+
+std::pair<int64_t, int64_t> parseOffloadedLayers(const std::string & log) {
+    constexpr const char * marker = "offloaded ";
+    const auto start = log.rfind(marker);
+    if (start == std::string::npos) return {0, 0};
+    const auto valueStart = start + std::char_traits<char>::length(marker);
+    const auto slash = log.find('/', valueStart);
+    if (slash == std::string::npos) return {0, 0};
+    const auto end = log.find(" layers to GPU", slash);
+    if (end == std::string::npos) return {0, 0};
+    try {
+        return {std::stoll(log.substr(valueStart, slash - valueStart)),
+                std::stoll(log.substr(slash + 1, end - slash - 1))};
+    } catch (...) { return {0, 0}; }
+}
+
+size_t longestCommonPrefix(const std::vector<llama_token> & left,
+                           const std::vector<llama_token> & right) {
+    const size_t limit = std::min(left.size(), right.size());
+    size_t count = 0;
+    while (count < limit && left[count] == right[count]) ++count;
+    return count;
+}
+
+size_t completeUtf8Prefix(const std::string & value) {
+    size_t offset = 0;
+    while (offset < value.size()) {
+        const auto lead = static_cast<unsigned char>(value[offset]);
+        size_t width = 0;
+        if (lead <= 0x7f) width = 1;
+        else if (lead >= 0xc2 && lead <= 0xdf) width = 2;
+        else if (lead >= 0xe0 && lead <= 0xef) width = 3;
+        else if (lead >= 0xf0 && lead <= 0xf4) width = 4;
+        else return offset;
+        if (offset + width > value.size()) return offset;
+        for (size_t i = 1; i < width; ++i) {
+            const auto continuation = static_cast<unsigned char>(value[offset + i]);
+            if ((continuation & 0xc0) != 0x80) return offset;
+            if (i == 1 && ((lead == 0xe0 && continuation < 0xa0) ||
+                           (lead == 0xed && continuation >= 0xa0) ||
+                           (lead == 0xf0 && continuation < 0x90) ||
+                           (lead == 0xf4 && continuation >= 0x90))) return offset;
+        }
+        offset += width;
+    }
+    return offset;
+}
+
+size_t lastCompleteWordBoundary(const std::string & value, size_t completeBytes) {
+    size_t boundary = 0;
+    for (size_t i = 0; i < completeBytes; ++i) {
+        const unsigned char c = static_cast<unsigned char>(value[i]);
+        if (c == ' ' || c == '\t' || c == '\r' || c == '\n') boundary = i + 1;
+        else if (c == '.' || c == '!' || c == '?' || c == ',' || c == ';' || c == ':') boundary = i + 1;
+    }
+    return boundary;
+}
+
+std::string trimProgress(std::string value) {
+    while (!value.empty() && (value.back() == ' ' || value.back() == '\t' ||
+           value.back() == '\r' || value.back() == '\n')) value.pop_back();
+    return value;
+}
+
 class HyMt final : public TranslationEngine {
     Model model{nullptr, llama_model_free};
     Context context{nullptr, llama_free};
@@ -30,7 +117,17 @@ class HyMt final : public TranslationEngine {
     std::string activeBackend = "CPU";
     int threads, batch, ubatch;
     bool opencl = false;
+    std::mutex contextOwner;
     TranslationStats lastStats;
+    std::vector<llama_token> cachedPromptTokens;
+    std::string cachedConfiguration;
+    int64_t cachedSession = 0;
+    llama_pos cachedPositionMax = -1;
+    bool cacheValid = false;
+    int64_t deviceBytesAllocated = 0;
+    int64_t offloadedLayers = 0;
+    int64_t totalLayers = 0;
+    int64_t fallbackCount = 0;
 
     static ggml_backend_dev_t adreno830() {
         for (size_t i = 0; i < ggml_backend_dev_count(); ++i) {
@@ -55,7 +152,14 @@ class HyMt final : public TranslationEngine {
         params.split_mode = LLAMA_SPLIT_MODE_NONE;
         std::array<ggml_backend_dev_t, 2> devices{device, nullptr};
         params.devices = device ? devices.data() : nullptr;
-        model.reset(llama_model_load_from_file(path.c_str(), params));
+        size_t deviceFreeBefore = 0, deviceTotalBefore = 0;
+        if (device) ggml_backend_dev_memory(device, &deviceFreeBefore, &deviceTotalBefore);
+        std::string loadLog;
+        auto * previousCapture = modelLoadLog;
+        modelLoadLog = &loadLog;
+        try { model.reset(llama_model_load_from_file(path.c_str(), params)); }
+        catch (...) { modelLoadLog = previousCapture; throw; }
+        modelLoadLog = previousCapture;
         if (!model) throw std::runtime_error("Hy-MT2 model load failed");
         auto options = llama_context_default_params();
         options.n_ctx = 2048; options.n_batch = batch; options.n_ubatch = ubatch;
@@ -65,15 +169,31 @@ class HyMt final : public TranslationEngine {
         context.reset(llama_init_from_model(model.get(), options));
         if (!context) throw std::runtime_error("Hy-MT2 context creation failed");
         opencl = device != nullptr;
+        const auto placement = parseOffloadedLayers(loadLog);
+        totalLayers = placement.second > 0 ? placement.second : llama_model_n_layer(model.get());
+        offloadedLayers = device ? placement.first : 0;
+        deviceBytesAllocated = 0;
+        if (device) {
+            size_t deviceFreeAfter = 0, deviceTotalAfter = 0;
+            ggml_backend_dev_memory(device, &deviceFreeAfter, &deviceTotalAfter);
+            if (deviceFreeBefore >= deviceFreeAfter)
+                deviceBytesAllocated = static_cast<int64_t>(deviceFreeBefore - deviceFreeAfter);
+        }
         activeBackend = device
-            ? std::string("Adreno OpenCL · ") + ggml_backend_dev_name(device) + " (GPU offload)"
+            ? std::string("Adreno OpenCL · ") + ggml_backend_dev_name(device) + " · " +
+                std::to_string(offloadedLayers) + "/" + std::to_string(totalLayers) + " layers · " +
+                std::to_string(deviceBytesAllocated / (1024 * 1024)) + " MiB free-memory delta"
             : (preferOpenCL ? "CPU · Adreno 830 OpenCL unavailable; fallback" : "CPU");
+        cacheValid = false;
+        cachedPromptTokens.clear();
+        cachedConfiguration.clear();
+        cachedPositionMax = -1;
     }
 
-    std::string run(const std::string & prompt) {
+    std::string run(const std::string & prompt, const TranslationRequestMetadata & request,
+                    const TranslationProgressCallback & callback, bool allowPrefixCache) {
         checkCancelled();
         const auto requestStart = std::chrono::steady_clock::now();
-        llama_memory_clear(llama_get_memory(context.get()), true);
         const auto * vocab = llama_model_get_vocab(model.get());
         const auto * format = llama_model_chat_template(model.get(), nullptr);
         if (!format) throw std::runtime_error("GGUF is missing its chat template");
@@ -89,14 +209,57 @@ class HyMt final : public TranslationEngine {
         std::vector<llama_token> tokens(count);
         if (llama_tokenize(vocab, chat.data(), length, tokens.data(), count, true, true) != count)
             throw std::runtime_error("Hy-MT2 tokenization failed");
+
+        std::string configuration;
+        configuration.reserve(path.size() + request.cache_scope.size() + std::char_traits<char>::length(format) + 24);
+        auto appendPart = [&configuration](const std::string & value) {
+            configuration.append(std::to_string(value.size()));
+            configuration.push_back(':');
+            configuration.append(value);
+        };
+        appendPart(path);
+        appendPart(request.cache_scope);
+        appendPart(format);
+        auto * memory = llama_get_memory(context.get());
+        const bool cacheIdentityMatches = allowPrefixCache && cacheValid &&
+            cachedSession == request.session_id && cachedConfiguration == configuration &&
+            llama_memory_seq_pos_max(memory, 0) == cachedPositionMax;
+        size_t reusablePrefix = cacheIdentityMatches ? longestCommonPrefix(cachedPromptTokens, tokens) : 0;
+        // llama_sampler_sample() needs logits for the final prompt token. Keep every
+        // identical token before it and re-evaluate that one token to rebuild logits.
+        const size_t keepTokens = reusablePrefix > 0 ? reusablePrefix - 1 : 0;
+        if (!cacheIdentityMatches) {
+            llama_memory_clear(memory, true);
+        } else if (!llama_memory_seq_rm(memory, 0, static_cast<llama_pos>(keepTokens), -1)) {
+            llama_memory_clear(memory, true);
+            reusablePrefix = 0;
+        }
+        cachedPromptTokens.clear();
+        cachedConfiguration.clear();
+        cacheValid = false;
+        cachedPositionMax = -1;
+        lastStats.input_tokens = count;
+        lastStats.cache_reused_tokens = static_cast<int64_t>(reusablePrefix > 0 ? reusablePrefix - 1 : 0);
+        lastStats.device_bytes_allocated = deviceBytesAllocated;
+        lastStats.offloaded_layers = offloadedLayers;
+        lastStats.total_layers = totalLayers;
+        lastStats.fallback_count = fallbackCount;
+
         auto prefillStart = std::chrono::steady_clock::now();
-        for (int offset = 0; offset < count; offset += batch) {
+        for (int offset = static_cast<int>(lastStats.cache_reused_tokens); offset < count; offset += batch) {
             checkCancelled();
             auto input = llama_batch_get_one(tokens.data() + offset, std::min(batch, count - offset));
+            const auto decodeCallStart = std::chrono::steady_clock::now();
             if (llama_decode(context.get(), input) != 0) throw std::runtime_error("Hy-MT2 prompt decode failed or cancelled");
+            lastStats.prefill_decode_us += std::chrono::duration_cast<std::chrono::microseconds>(
+                std::chrono::steady_clock::now() - decodeCallStart).count();
         }
         lastStats.prefill_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
             std::chrono::steady_clock::now() - prefillStart).count();
+        auto prefillSyncStart = std::chrono::steady_clock::now();
+        llama_synchronize(context.get());
+        lastStats.prefill_sync_us = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::steady_clock::now() - prefillSyncStart).count();
         Sampler sampler(llama_sampler_chain_init(llama_sampler_chain_default_params()), llama_sampler_free);
         llama_sampler_chain_add(sampler.get(), llama_sampler_init_penalties(llama_vocab_n_tokens(vocab), 64, 1.05f, 0, 0));
         llama_sampler_chain_add(sampler.get(), llama_sampler_init_top_k(20));
@@ -105,12 +268,53 @@ class HyMt final : public TranslationEngine {
         llama_sampler_chain_add(sampler.get(), llama_sampler_init_dist(42));
         std::string result;
         auto decodeStart = std::chrono::steady_clock::now();
+        auto lastProgressAt = requestStart;
+        size_t lastPublishedBytes = 0;
+        auto publishProgress = [&]() {
+            if (!callback) return;
+            const auto validBytes = completeUtf8Prefix(result);
+            const auto boundary = lastCompleteWordBoundary(result, validBytes);
+            if (boundary <= lastPublishedBytes) return;
+            const auto now = std::chrono::steady_clock::now();
+            if (now - lastProgressAt < std::chrono::milliseconds(80)) return;
+            auto visible = trimProgress(result.substr(0, boundary));
+            if (visible.size() <= lastPublishedBytes) return;
+            TranslationProgress progress{request.session_id, request.segment_id, request.revision,
+                std::chrono::duration_cast<std::chrono::milliseconds>(now - requestStart).count(),
+                std::move(visible), true};
+            callback(progress);
+            lastPublishedBytes = progress.text.size();
+            lastProgressAt = now;
+            if (lastStats.first_visible_ms == 0) lastStats.first_visible_ms = progress.elapsed_ms;
+        };
         for (int i = 0; i < max_output; ++i) {
             checkCancelled();
+            if (i > 0) {
+                const auto syncStart = std::chrono::steady_clock::now();
+                llama_synchronize(context.get());
+                lastStats.decode_sync_us += std::chrono::duration_cast<std::chrono::microseconds>(
+                    std::chrono::steady_clock::now() - syncStart).count();
+            }
+            const auto sampleStart = std::chrono::steady_clock::now();
             auto token = llama_sampler_sample(sampler.get(), context.get(), -1);
+            lastStats.sampling_us += std::chrono::duration_cast<std::chrono::microseconds>(
+                std::chrono::steady_clock::now() - sampleStart).count();
             if (llama_vocab_is_eog(vocab, token)) {
                 lastStats.decode_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
                     std::chrono::steady_clock::now() - decodeStart).count();
+                lastStats.complete_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                    std::chrono::steady_clock::now() - requestStart).count();
+                // If no complete word was shown during decoding, the return value is
+                // the first useful visible result at EOS.
+                if (callback && lastStats.first_visible_ms == 0)
+                    lastStats.first_visible_ms = lastStats.complete_ms;
+                if (allowPrefixCache) {
+                    cachedPromptTokens = std::move(tokens);
+                    cachedConfiguration = std::move(configuration);
+                    cachedSession = request.session_id;
+                    cachedPositionMax = llama_memory_seq_pos_max(memory, 0);
+                    cacheValid = cachedPositionMax >= 0;
+                }
                 return result;
             }
             char buffer[256];
@@ -126,8 +330,12 @@ class HyMt final : public TranslationEngine {
                     std::chrono::steady_clock::now() - requestStart).count();
             }
             ++lastStats.output_tokens;
+            publishProgress();
             auto batch = llama_batch_get_one(&token, 1);
+            const auto decodeCallStart = std::chrono::steady_clock::now();
             if (llama_decode(context.get(), batch) != 0) throw std::runtime_error("Hy-MT2 decode failed or cancelled");
+            lastStats.decode_compute_us += std::chrono::duration_cast<std::chrono::microseconds>(
+                std::chrono::steady_clock::now() - decodeCallStart).count();
         }
         throw std::runtime_error("Hy-MT2 output exceeded token limit; not committing truncated translation");
     }
@@ -136,6 +344,7 @@ class HyMt final : public TranslationEngine {
         context.reset();
         model.reset();
         initialize(nullptr);
+        ++fallbackCount;
         activeBackend = "CPU · Adreno OpenCL inference failed; fallback";
     }
 public:
@@ -150,7 +359,9 @@ public:
         (void) cacheDir;
 #endif
         static std::once_flag once;
+        installLlamaLogCapture();
         std::call_once(once, [] { llama_backend_init(); });
+        std::string openClFailure;
         if (preferOpenCL) {
             auto device = adreno830();
             if (device) {
@@ -158,20 +369,89 @@ public:
                 if (probe) {
                     ggml_backend_free(probe);
                     try { initialize(device); return; }
-                    catch (...) { context.reset(); model.reset(); }
+                    catch (...) {
+                        context.reset(); model.reset(); ++fallbackCount;
+                        openClFailure = "CPU · Adreno OpenCL initialization failed; fallback";
+                    }
+                } else {
+                    ++fallbackCount;
+                    openClFailure = "CPU · Adreno OpenCL device probe failed; fallback";
                 }
+            } else {
+                ++fallbackCount;
+                openClFailure = "CPU · Adreno 830 OpenCL unavailable; fallback";
             }
         }
         initialize(nullptr);
+        if (!openClFailure.empty()) activeBackend = std::move(openClFailure);
     }
     std::string translate(const std::string & prompt) override {
+        return translateWithProgress(prompt, TranslationRequestMetadata{}, {});
+    }
+    std::string translateWithProgress(const std::string & prompt, const TranslationRequestMetadata & request,
+                                      const TranslationProgressCallback & callback) override {
+        std::lock_guard<std::mutex> owner(contextOwner);
         lastStats = {};
-        try { return run(prompt); }
+        try {
+            auto result = run(prompt, request, callback, true);
+            lastStats.fallback_count = fallbackCount;
+            return result;
+        }
         catch (...) {
-            if (!opencl || cancelled.load()) throw;
+            cacheValid = false;
+            cachedPromptTokens.clear();
+            cachedConfiguration.clear();
+            cachedPositionMax = -1;
+            if (!opencl || cancelled.load()) {
+                llama_memory_clear(llama_get_memory(context.get()), true);
+                throw;
+            }
             fallbackToCpu();
             lastStats = {};
-            return run(prompt);
+            try {
+                auto result = run(prompt, request, callback, true);
+                lastStats.fallback_count = fallbackCount;
+                return result;
+            }
+            catch (...) {
+                cacheValid = false;
+                llama_memory_clear(llama_get_memory(context.get()), true);
+                throw;
+            }
+        }
+    }
+    std::string translateUncached(const std::string & prompt) override {
+        return translateUncachedWithProgress(prompt, TranslationRequestMetadata{}, {});
+    }
+    std::string translateUncachedWithProgress(const std::string & prompt,
+        const TranslationRequestMetadata & request, const TranslationProgressCallback & callback) override {
+        std::lock_guard<std::mutex> owner(contextOwner);
+        lastStats = {};
+        try {
+            auto result = run(prompt, request, callback, false);
+            lastStats.fallback_count = fallbackCount;
+            return result;
+        }
+        catch (...) {
+            cacheValid = false;
+            cachedPromptTokens.clear();
+            cachedConfiguration.clear();
+            cachedPositionMax = -1;
+            if (!opencl || cancelled.load()) {
+                llama_memory_clear(llama_get_memory(context.get()), true);
+                throw;
+            }
+            fallbackToCpu();
+            lastStats = {};
+            try {
+                auto result = run(prompt, request, callback, false);
+                lastStats.fallback_count = fallbackCount;
+                return result;
+            } catch (...) {
+                cacheValid = false;
+                llama_memory_clear(llama_get_memory(context.get()), true);
+                throw;
+            }
         }
     }
     std::string backend() const override { return activeBackend; }

@@ -46,11 +46,13 @@ data class SessionConfig(
     val glossary: String = "",
     val qnn: Boolean = false,
     val gpuTranslation: Boolean = false,
+    val translationThreads: Int = 4,
     val translationBatch: Int = 256,
     val translationUbatch: Int = 128,
 ) {
     init {
         require(threads in 1..8); require(correctionThreads in setOf(2, 4, 6, 8))
+        require(translationThreads in setOf(2, 4))
         require(translationBatch in setOf(128, 256, 512))
         require(translationUbatch in setOf(64, 128, 256) && translationUbatch <= translationBatch)
     }
