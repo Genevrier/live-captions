@@ -119,6 +119,7 @@ class CaptionService : Service() {
         if (intent?.action == ACTION_STOP || intent == null) {
             val stoppedGeneration = displayedGeneration
             val session = current
+            lifecycleLog(stoppedGeneration, "stop-requested", "state=${CaptionState.lifecycle.value}")
             if (CaptionState.lifecycle.value == ListeningState.LISTENING) {
                 CaptionState.stopping(stoppedGeneration)
                 session?.stop()
@@ -133,9 +134,11 @@ class CaptionService : Service() {
                     if (current === session) current = null
                     finishStop(stoppedGeneration, generation)
                 }
+                escalateShutdown(session, stoppedGeneration, generation)
             }
             return START_NOT_STICKY
         }
+        lifecycleLog(generation, "listen-requested", "model=${intent.getStringExtra("model")}")
         val config = SessionConfig(
             profile = Profile.fromId(intent.getStringExtra("profile")),
             performanceMode = PerformanceMode.entries.firstOrNull { it.name == intent.getStringExtra("performanceMode") } ?: PerformanceMode.BALANCED,
@@ -158,6 +161,9 @@ class CaptionService : Service() {
         if (previous == null) {
             createAndStartSession(generation, config)
         } else {
+            // A replacement session waits for the previous one's native cleanup so the two never
+            // own the same recognizer, translator or QNN process at the same time.
+            lifecycleLog(generation, "previous-session-cancelled", "previous=${previous.generation}")
             previous.cancel()
             afterTermination(previous) {
                 if (current === previous) current = null
@@ -208,14 +214,17 @@ class CaptionService : Service() {
     private fun afterTermination(session: CaptionSession, action: () -> Unit) {
         terminationWaiters[session]?.let { it += action; return }
         terminationWaiters[session] = mutableListOf(action)
+        val startedAtNs = System.nanoTime()
         shutdownScope.launch {
             try {
-                while (isActive && !session.join(250)) { }
+                while (isActive && !session.join(JOIN_SLICE_MS)) { }
             } catch (_: InterruptedException) {
                 Thread.currentThread().interrupt()
                 return@launch
             }
             if (!isActive) return@launch
+            lifecycleLog(session.generation, "session-fully-stopped",
+                "elapsedMs=${(System.nanoTime() - startedAtNs) / 1_000_000L}")
             withContext(Dispatchers.Main.immediate) {
                 val actions = terminationWaiters.remove(session).orEmpty()
                 actions.forEach { it() }
@@ -223,12 +232,57 @@ class CaptionService : Service() {
         }
     }
 
+    /**
+     * Bounds how long the UI may stay in STOPPING.
+     *
+     * Translation work is dropped first so the ASR flush still gets to publish trailing speech;
+     * only then is the session force-cancelled, and only after the hard deadline is the UI
+     * released. `current` is deliberately *not* cleared here: the session's workers own their
+     * native objects and a replacement session must still wait for them, so a stuck worker can
+     * never produce two owners of the same recognizer, translator or QNN process.
+     */
+    private fun escalateShutdown(session: CaptionSession, stoppedGeneration: Long, requestGeneration: Long) {
+        shutdownScope.launch {
+            val deadline = ShutdownDeadline(startedAtNs = System.nanoTime())
+            delay(deadline.remainingUntilAbandonTranslationsMs())
+            if (!isActive || session.isTerminated()) return@launch
+            lifecycleLog(session.generation, "translation-work-abandoned",
+                "graceMs=${deadline.graceMs} elapsedMs=${deadline.elapsedMs()}")
+            runCatching { session.abandonTranslations() }
+
+            delay(deadline.remainingUntilForceCancelMs())
+            if (!isActive || session.isTerminated()) return@launch
+            lifecycleLog(session.generation, "forced-cancellation-triggered",
+                "cancelMs=${deadline.cancelMs} elapsedMs=${deadline.elapsedMs()}")
+            runCatching { session.cancel() }
+
+            delay(deadline.remainingUntilReleaseUiMs())
+            if (!isActive || session.isTerminated()) return@launch
+            lifecycleLog(session.generation, "shutdown-deadline-exceeded",
+                "hardMs=${deadline.hardMs}; releasing UI while workers unwind")
+            withContext(Dispatchers.Main.immediate) { releaseUi(stoppedGeneration, requestGeneration) }
+        }
+    }
+
     private fun finishStop(stoppedGeneration: Long, requestGeneration: Long) {
         if (destroyed || requestGeneration != requests.get()) return
         logRunSample(stoppedGeneration)
+        releaseUi(stoppedGeneration, requestGeneration)
+    }
+
+    private fun releaseUi(stoppedGeneration: Long, requestGeneration: Long) {
+        if (destroyed || requestGeneration != requests.get()) return
         CaptionState.stopped(stoppedGeneration)
         stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelfResult(latestStartId)
+    }
+
+    /** Transcript-free lifecycle trail; pairs with CaptionPipeline traces from the session. */
+    private fun lifecycleLog(generation: Long, event: String, details: String = "") {
+        val atNs = System.nanoTime()
+        val sessionStartNs = CaptionState.sessionStartNs(generation) ?: atNs
+        Log.i("CaptionLifecycle", "session=$generation atNs=$atNs " +
+            "sessionElapsedNs=${(atNs - sessionStartNs).coerceAtLeast(0)} event=$event $details")
     }
 
     private fun startForegroundNotification(modelName: String) {
@@ -279,6 +333,8 @@ class CaptionService : Service() {
         private const val ACTION_OVERLAY = "com.asr.live.action.OVERLAY"
         private const val CHANNEL_ID = "captions"
         private const val NOTIF_ID = 1
+        /** Short slices keep the escalation timers responsive without busy-waiting. */
+        private const val JOIN_SLICE_MS = 100L
         fun start(ctx: Context, config: SessionConfig) {
             ContextCompat.startForegroundService(ctx, Intent(ctx, CaptionService::class.java)
                 .putExtra("profile", config.profile.name).putExtra("performanceMode", config.performanceMode.name).putExtra("model", config.modelId)

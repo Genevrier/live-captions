@@ -11,10 +11,25 @@ static std::string utf8(JNIEnv * env, jbyteArray bytes) {
 static void fail(JNIEnv * env, const std::exception & e) {
     if (!env->ExceptionCheck()) env->ThrowNew(env->FindClass("java/lang/IllegalStateException"), e.what());
 }
-extern "C" JNIEXPORT jlong JNICALL Java_com_asr_live_i18n_NativeTranslator_load(JNIEnv * env, jobject, jbyteArray path, jint threads, jint batch, jint ubatch, jboolean opus, jboolean preferOpenCL, jbyteArray cacheDir) {
-    try { return reinterpret_cast<jlong>((opus ? load_opus(utf8(env, path), threads) :
-        load_hymt(utf8(env, path), threads, batch, ubatch, preferOpenCL, cacheDir ? utf8(env, cacheDir) : "")).release()); }
+extern "C" JNIEXPORT jlong JNICALL Java_com_asr_live_i18n_NativeTranslator_load(JNIEnv * env, jobject, jbyteArray path, jint threads, jint batch, jint ubatch, jboolean opus, jboolean preferOpenCL, jbyteArray cacheDir, jlong loadControl) {
+    try { return reinterpret_cast<jlong>((opus ? load_opus(utf8(env, path), threads, loadControl) :
+        load_hymt(utf8(env, path), threads, batch, ubatch, preferOpenCL,
+                  cacheDir ? utf8(env, cacheDir) : "", loadControl)).release()); }
     catch (const std::exception & e) { fail(env, e); return 0; }
+}
+
+// The load-cancellation token is created before any model exists and is owned by Java. The
+// registry keeps it alive for the duration of a load, so cancel/release cannot race into a
+// use-after-free and release is idempotent.
+extern "C" JNIEXPORT jlong JNICALL Java_com_asr_live_i18n_NativeModelLoad_createControl(JNIEnv * env, jobject) {
+    try { return static_cast<jlong>(create_model_load_control()); }
+    catch (const std::exception & e) { fail(env, e); return 0; }
+}
+extern "C" JNIEXPORT void JNICALL Java_com_asr_live_i18n_NativeModelLoad_cancelControl(JNIEnv *, jobject, jlong id) {
+    cancel_model_load_control(static_cast<int64_t>(id));
+}
+extern "C" JNIEXPORT void JNICALL Java_com_asr_live_i18n_NativeModelLoad_releaseControl(JNIEnv *, jobject, jlong id) {
+    release_model_load_control(static_cast<int64_t>(id));
 }
 extern "C" JNIEXPORT jbyteArray JNICALL Java_com_asr_live_i18n_NativeTranslator_run(
         JNIEnv * env, jobject, jlong handle, jbyteArray text, jlong sessionId, jlong segmentId,

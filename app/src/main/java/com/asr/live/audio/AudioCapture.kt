@@ -28,6 +28,11 @@ class AudioCapture(
     @Synchronized fun stopCapturing() { active.set(false) }
     @Synchronized fun cancel() { active.set(false); worker?.interrupt() }
     @Synchronized fun threadForJoin(): Thread? = worker
+    /**
+     * True once no further PCM can arrive. A capture that was never started counts as finished,
+     * so a Stop that races startup cannot leave the recognizer waiting for audio forever.
+     */
+    @Synchronized fun isFinished(): Boolean = !active.get() && worker?.isAlive != true
     @SuppressLint("MissingPermission")
     private fun loop() {
         var recorder: AudioRecord? = null

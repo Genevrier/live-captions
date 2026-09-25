@@ -9,6 +9,8 @@ import com.asr.live.audio.AudioSignalTelemetry
 import com.asr.live.audio.pcm16Sha256
 import com.asr.live.i18n.MlKitTranslator
 import com.asr.live.i18n.LocalTranslator
+import com.asr.live.i18n.ModelLoadScope
+import com.asr.live.i18n.NativeModelLoad
 import com.asr.live.i18n.NativeTranslator
 import com.asr.live.model.*
 import com.asr.live.pipeline.*
@@ -77,6 +79,11 @@ class CaptionSession(
     @Volatile private var lastPartialAtNs: Long? = null
     @Volatile private var opusTranslator: LocalTranslator? = null
     @Volatile private var finalTranslator: LocalTranslator? = null
+    // Load tokens exist before their translators do, so Stop can abort a model load that has
+    // not yet produced a cancellable handle.
+    @Volatile private var hyLoadScope: ModelLoadScope? = null
+    @Volatile private var opusLoadScope: ModelLoadScope? = null
+    @Volatile private var hyReady = false
     private val opusBenchmarkEnabled = config.opusBenchmarkEnabled
     private val startupWorkers = buildMap {
         put(WORKER_RECOGNITION, true)
@@ -106,11 +113,11 @@ class CaptionSession(
         },
         onStarted = { if (!lifecycle.isCancelled()) { trace("microphone-started"); CaptionState.listening(generation) } },
         onFinished = {
-            if (lifecycle.isStopping()) {
-                audioQueue.closeForDrain()
-                captureFinished.set(true)
-                trace("microphone-finished", details = "queued=${audioQueue.size()}")
-            }
+            // Always record completion. A capture that ends for any other reason must not leave
+            // a later stop() waiting for audio that can never arrive.
+            captureFinished.set(true)
+            if (lifecycle.isStopping()) audioQueue.closeForDrain()
+            trace("microphone-finished", details = "queued=${audioQueue.size()} stopping=${lifecycle.isStopping()}")
         },
         onError = { fail("Microphone: ${it.message}") },
         onFormat = { sampleRate, channels ->
@@ -126,23 +133,76 @@ class CaptionSession(
         if (opusBenchmarkEnabled) opus.start()
         final.start(); corrector.start(); asr.start()
     }
-    /** Gracefully stop input, drain queued PCM, flush ASR and finish caption translations. */
+    /**
+     * Gracefully stop input, drain queued PCM, flush ASR and finish caption translations.
+     *
+     * Everything that only feeds the live caption line — provisional translations, the OPUS A/B
+     * branch, an in-flight model load — is abandoned immediately, because no one will read it.
+     * Captured PCM and queued finals are preserved and still drain through ASR and Hy.
+     */
     fun stop() {
-        if (lifecycle.requestStop()) { trace("stop-requested"); capture.stopCapturing() }
+        if (!lifecycle.requestStop()) return
+        trace("stop-requested")
+        capture.stopCapturing()
+        trace("graceful-shutdown-started", details = "graceMs=${ShutdownDeadline.GRACE_MS} " +
+            "cancelMs=${ShutdownDeadline.CANCEL_MS} hardMs=${ShutdownDeadline.HARD_MS}")
+        discardProvisionalWork("stop requested")
+        // Correction is optional quality work. Stop publishes the unrevised final instead of
+        // waiting for a second recognizer pass, so no captured speech is lost either way.
+        correctionQueue.close().forEach { pending ->
+            pending.samples.fill(0f)
+            trace("correction-cancelled", pending.request.key, pending.request.requestId, "reason=stop requested")
+            enqueueFinal(pending.request)
+        }
+        // A model still loading after Stop can only cost time and memory.
+        runCatching { hyLoadScope?.cancel() }
+        runCatching { opusLoadScope?.cancel() }
+    }
+    /**
+     * First shutdown escalation. Drops every remaining translation — including a queued final —
+     * but leaves recognition alone, so the ASR flush still publishes trailing speech as source
+     * text instead of being cut short by a full cancellation.
+     */
+    fun abandonTranslations() {
+        if (!lifecycle.abandonTranslations()) return
+        trace("translation-work-abandoned", details = "reason=graceful window elapsed")
+        discardProvisionalWork("graceful window elapsed")
+        finals.close().forEach { rejectRequest(it, "final translation dropped at the stop deadline") }
+        runCatching { finalTranslator?.cancel() }
+        runCatching { opusTranslator?.cancel() }
+        runCatching { hyLoadScope?.cancel() }; runCatching { opusLoadScope?.cancel() }
     }
     fun cancel() {
         if (!lifecycle.cancel()) return
         trace("cancel-requested")
         interruptWorkers()
     }
+    private fun discardProvisionalWork(reason: String) {
+        runCatching { opusTranslator?.cancel() }
+        synchronized(hyScheduleLock) {
+            val active = activeHyRequest.get()?.takeIf { !it.isFinal }
+            discardProvisionalTranslations(
+                provisionalQueues = listOf(provisional, qualityProvisional),
+                activeProvisionalRequestId = active?.requestId,
+                cancelRequest = { requestId ->
+                    finalTranslator?.cancel(requestId)
+                    trace("translation-cancelled", active?.key, requestId, "reason=$reason")
+                },
+                onDiscarded = { rejectRequest(it, "provisional translation discarded: $reason") },
+            )
+        }
+    }
     private fun interruptWorkers() {
         runCatching { capture.cancel() }
+        runCatching { hyLoadScope?.cancel() }; runCatching { opusLoadScope?.cancel() }
         runCatching { opusTranslator?.cancel() }; runCatching { finalTranslator?.cancel() }
         audioQueue.close().forEach { it.samples.fill(0f) }
         provisional.close(); qualityProvisional.close(); finals.close()
         correctionQueue.close().forEach { it.samples.fill(0f) }
         listOf(asr, opus, final, corrector).forEach { runCatching { it.interrupt() } }
     }
+    /** Non-blocking probe used by the service to decide whether shutdown must escalate. */
+    fun isTerminated(): Boolean = join(0)
     /** A short bounded wait. Service callers retry this from an IO coroutine. */
     fun join(timeoutMs: Long = 250): Boolean {
         val startedNs = System.nanoTime()
@@ -191,20 +251,29 @@ class CaptionSession(
                             "binderP95Ms=${profile.binderAndMarshallingP95Nanos / 1_000_000} " +
                             "feedMs=${profile.audioFeedNanos / 1_000_000} decodeCombinedMs=${profile.combinedDecodeNanos / 1_000_000} " +
                             "resultMs=${profile.resultNanos / 1_000_000} endpointMs=${profile.endpointCheckNanos / 1_000_000} " +
-                            "graphBreakdown=${profile.graphBreakdown}") })
+                            "graphBreakdown=${profile.graphBreakdown}") },
+                    { lifecycle.isStopping() })
             else EngineFactory.create(ctx, info, config.profile.source, "transcribe", ::partial, ::endpoint, config.threads)
+            trace("listen-asr-init-started", details = "model=${info.shortName} qnn=${config.qnn}")
             engine = startupBarrier.initialize(WORKER_RECOGNITION) { create() }
             startupReported = true
-            startupBarrier.await()
-            startupBarrier.requiredFailures().firstOrNull()?.let {
-                throw IllegalStateException("${it.worker} failed during startup: ${it.cause.message}", it.cause)
-            }
+            trace("asr-initialized", details = "initMs=${(nowNs() - sessionStartedAtNs) / 1_000_000L}")
             if (lifecycle.isCancelled()) return
+            // Capture starts as soon as recognition is ready. Translation and correction models
+            // keep loading concurrently so a multi-GB GGUF never makes Listen look dead.
             capture.start()
             while (!lifecycle.isCancelled()) {
+                // A required worker that fails after capture started still terminates the session.
+                // During a stop that failure is expected teardown, and aborting here would throw
+                // away the ASR flush the graceful path exists to preserve.
+                if (!lifecycle.isStopping()) startupBarrier.requiredFailure(exceptWorker = WORKER_RECOGNITION)?.let {
+                    fail("${it.worker} failed to start: ${it.cause.message}")
+                    return
+                }
                 val chunk = audioQueue.poll()
                 if (chunk == null) {
-                    if (lifecycle.shouldFinishAsr(audioQueue.size() > 0, captureFinished.get(), inferenceBusy.get())) {
+                    if (lifecycle.shouldFinishAsr(audioQueue.size() > 0,
+                            captureFinished.get() || capture.isFinished(), inferenceBusy.get())) {
                         trace("asr-finish-started")
                         val finishStartedNs = nowNs()
                         checkNotNull(engine).finish()
@@ -262,7 +331,8 @@ class CaptionSession(
             if (!startupReported) { failStartupIfUnreported(WORKER_RECOGNITION, e); startupReported = true }
         } catch (t: Throwable) {
             if (!startupReported) { failStartupIfUnreported(WORKER_RECOGNITION, t); startupReported = true }
-            if (!lifecycle.isCancelled()) fail("Recognition: ${t.message}")
+            // A teardown that was asked for is not an error worth showing the user.
+            if (!lifecycle.isStopping()) fail("Recognition: ${t.message}")
         }
         finally {
             if (!startupReported) failStartupIfUnreported(WORKER_RECOGNITION,
@@ -271,6 +341,7 @@ class CaptionSession(
             runCatching { engine?.release() }
             capture.cancel(); pcm.take()
             lifecycle.markAsrFinished()
+            trace("asr-worker-stopped")
         }
     }
     private fun partial(text: String) {
@@ -281,6 +352,8 @@ class CaptionSession(
         lastPartialAtNs = atNs
         trace("asr-partial", row.key, details = "atNs=$atNs")
         cancelHyIfIncompatible(row)
+        // After Stop nothing will read another provisional revision of the live line.
+        if (!lifecycle.shouldTranslateProvisional()) return
         if (!ProvisionalTranslationPolicy.shouldTranslate(lastProvisionalText, row.stableSource, time, lastProvisionalAt)) return
         lastProvisionalAt = time; lastProvisionalText = row.stableSource
         val request = TranslationRequest(row.key, row.stableSource,
@@ -414,7 +487,7 @@ class CaptionSession(
             if (!startupReported) { failStartupIfUnreported(WORKER_CORRECTION, e); startupReported = true }
         } catch (t: Throwable) {
             if (!startupReported) { failStartupIfUnreported(WORKER_CORRECTION, t); startupReported = true }
-            if (!lifecycle.isCancelled()) CaptionState.error(generation, "Optional correction disabled: ${t.message}")
+            if (!lifecycle.isStopping()) CaptionState.error(generation, "Optional correction disabled: ${t.message}")
         } finally {
             if (!startupReported) failStartupIfUnreported(WORKER_CORRECTION,
                 CancellationException("Correction worker stopped before becoming ready"))
@@ -422,7 +495,10 @@ class CaptionSession(
                 runCatching { performanceHint?.close() }
                 correctionReady = false
                 if (!engineRetiredByDecode) engine?.close()
-            } finally { lifecycle.markCorrectionFinished() }
+            } finally {
+                lifecycle.markCorrectionFinished()
+                trace("correction-worker-stopped")
+            }
         }
     }
 
@@ -488,6 +564,11 @@ class CaptionSession(
     }
 
     private fun enqueueFinal(request: TranslationRequest) {
+        // The recognized source is already published; only its translation is given up here.
+        if (!lifecycle.shouldTranslate()) {
+            rejectRequest(request, "translation work abandoned at the stop deadline")
+            return
+        }
         val queued = request.copy(queuedAtNs = nowNs())
         trace("translation-requested", queued.key, queued.requestId,
             "branch=final createdAtNs=${queued.createdAtNs} queuedAtNs=${queued.queuedAtNs}")
@@ -503,9 +584,13 @@ class CaptionSession(
             lost
         }
         dropped?.let {
-            CaptionState.skip(it.key, "Translation skipped: queue full")
+            // Capture no longer waits for the translation model, so early endpoints can arrive
+            // while it is still loading. Say so rather than blaming a full queue.
+            val pending = !hyReady
+            CaptionState.skip(it.key, if (pending) "Translation skipped: model still loading"
+                else "Translation skipped: queue full")
             CaptionState.metrics(generation) { m -> m.copy(skippedTranslations = m.skippedTranslations + 1) }
-            rejectRequest(it, "final translation queue full")
+            rejectRequest(it, if (pending) "translation model still loading" else "final translation queue full")
         }
     }
 
@@ -519,7 +604,7 @@ class CaptionSession(
             }
         }
     }
-    private fun createTranslator(): LocalTranslator {
+    private fun createTranslator(loadScope: ModelLoadScope?): LocalTranslator {
         if (config.quality == TranslationQuality.ML_KIT) return MlKitTranslator(config.profile.source, config.profile.target)
         val bundle = checkNotNull(config.quality.bundleId)
         val directory = TranslationModels.verify(ctx, bundle)
@@ -539,39 +624,50 @@ class CaptionSession(
         return NativeTranslator(java.io.File(directory, "model.gguf"),
             config.translationThreads, false, config.profile, config.glossary,
             preferOpenCl, ctx.getDir("llama-opencl-cache", Context.MODE_PRIVATE),
-            config.translationBatch, config.translationUbatch)
+            config.translationBatch, config.translationUbatch, loadScope)
     }
-    private fun createOpusTranslator(): LocalTranslator {
+    private fun createOpusTranslator(loadScope: ModelLoadScope): LocalTranslator {
         val bundle = checkNotNull(config.profile.fastBundle)
         val directory = TranslationModels.verify(ctx, bundle)
         return NativeTranslator(directory, 2, true, config.profile, "", false,
             ctx.getDir("llama-opencl-cache", Context.MODE_PRIVATE),
-            config.translationBatch, config.translationUbatch)
+            config.translationBatch, config.translationUbatch, loadScope)
     }
     private fun modelBytesFor(id: String) = TranslationModels.bundle(ctx, id).size
     private fun translateLoop() {
         var translator: LocalTranslator? = null
         var performanceHint: WorkerPerformanceHint? = null
         var startupReported = false
+        // Created before the model load so a Stop that lands mid-GGUF has something to cancel.
+        // ML Kit downloads its own models and exposes no native load handle.
+        val loadScope = if (config.quality == TranslationQuality.ML_KIT) null else ModelLoadScope(NativeModelLoad())
+        hyLoadScope = loadScope
         try {
             performanceHint = WorkerPerformanceHint(ctx, 750)
+            trace("hy-load-started", details = "quality=${config.quality.name} gpu=${config.gpuTranslation}")
             val engine = startupBarrier.initialize(WORKER_HY_TRANSLATION) {
-                createTranslator().also {
+                createTranslator(loadScope).also {
                     translator = it
                     finalTranslator = it
-                    it.warmUp()
+                    trace("hy-load-completed", details = "backend=${it.backend}")
+                    // Warm-up only prepares future work; a stopped session has none.
+                    if (lifecycle.shouldWarmUp()) it.warmUp() else trace("hy-warmup-skipped", details = "reason=stop")
                 }
             }
             translator = engine
             finalTranslator = engine
             CaptionState.metrics(generation) { it.copy(translationBackend = engine.backend) }
             startupReported = true
+            hyReady = true
             while (lifecycle.shouldRunHyTranslation(finals.size() > 0 || provisional.size() > 0 || qualityProvisional.size() > 0)) {
                 // Pick and publish the active request under the same lock used by final
                 // admission. A final can therefore either win the poll or preempt the active
                 // provisional; there is no race window in which it misses both.
                 val request = synchronized(hyScheduleLock) {
-                    (finals.poll() ?: if (opusBenchmarkEnabled) qualityProvisional.poll() else provisional.poll())
+                    // Finals carry committed speech and always drain. Provisional work only
+                    // refreshes the live line, so Stop abandons it instead of prolonging shutdown.
+                    (finals.poll() ?: if (!lifecycle.shouldTranslateProvisional()) null
+                        else if (opusBenchmarkEnabled) qualityProvisional.poll() else provisional.poll())
                         .also { activeHyRequest.set(it) }
                 }
                 if (request == null) { Thread.sleep(20); continue }
@@ -659,11 +755,12 @@ class CaptionSession(
                         finalLatencyMs = if (accepted && isFinal && request.endpointAt != null) now() - request.endpointAt else m.finalLatencyMs) }
                 } catch (_: InterruptedException) { break }
                 catch (_: CancellationException) {
-                    if (!lifecycle.isCancelled()) trace("hy-request-cancelled", request.key, request.requestId,
-                        "provisional became obsolete or a final arrived")
+                    trace("translation-cancelled", request.key, request.requestId,
+                        if (lifecycle.isStopping()) "session stopping"
+                        else "provisional became obsolete or a final arrived")
                 }
                 catch (t: Exception) {
-                    if (!request.benchmarkOnly && !lifecycle.isCancelled()) {
+                    if (!request.benchmarkOnly && !lifecycle.isStopping()) {
                         CaptionState.skip(request.key, "Translation failed: ${t.message}")
                         rejectRequest(request, "Hy translation failed")
                     }
@@ -674,15 +771,25 @@ class CaptionSession(
                 }
                 }
         } catch (t: Throwable) {
-            if (!startupReported) { failStartupIfUnreported(WORKER_HY_TRANSLATION, t); startupReported = true }
-            if (!lifecycle.isCancelled()) fail("Translator: ${t.message}")
+            val duringLoad = !startupReported
+            if (duringLoad) { failStartupIfUnreported(WORKER_HY_TRANSLATION, t); startupReported = true }
+            // A stop-cancelled load is the requested outcome, not a failure to report.
+            if (lifecycle.isStopping()) trace(if (duringLoad) "hy-load-cancelled" else "hy-worker-aborted",
+                details = "reason=${t.message}")
+            else fail("Translator: ${t.message}")
         } finally {
             if (!startupReported) failStartupIfUnreported(WORKER_HY_TRANSLATION,
                 CancellationException("Translator stopped before becoming ready"))
             try {
                 runCatching { performanceHint?.close() }
                 translator?.close()
-            } finally { finalTranslator = null }
+            } finally {
+                finalTranslator = null
+                hyLoadScope = null
+                // The load call has returned, so retiring its token can no longer race it.
+                runCatching { loadScope?.release() }
+                trace("hy-worker-stopped")
+            }
         }
     }
     private fun opusLoop() {
@@ -690,16 +797,21 @@ class CaptionSession(
         var translator: LocalTranslator? = null
         var performanceHint: WorkerPerformanceHint? = null
         var startupReported = false
+        val loadScope = ModelLoadScope(NativeModelLoad())
+        opusLoadScope = loadScope
         try {
             performanceHint = WorkerPerformanceHint(ctx, 750)
             val engine = startupBarrier.initialize(WORKER_OPUS) {
-                createOpusTranslator().also { it.warmUp() }
+                createOpusTranslator(loadScope).also {
+                    opusTranslator = it
+                    if (lifecycle.shouldWarmUp()) it.warmUp()
+                }
             }
             translator = engine
             opusTranslator = engine
             CaptionState.metrics(generation) { it.copy(opusBackend = engine.backend) }
             startupReported = true
-            while (lifecycle.shouldRunOpusTranslation(provisional.size() > 0)) {
+            while (lifecycle.shouldRunOpusTranslation()) {
                 val request = provisional.poll()
                 if (request == null) { Thread.sleep(20); continue }
                 depths()
@@ -732,7 +844,7 @@ class CaptionSession(
                         opusTokensPerSecond = timings.tokensPerSecond) }
                 } catch (_: InterruptedException) { break }
                 catch (t: Exception) {
-                    if (!lifecycle.isCancelled()) {
+                    if (!lifecycle.isStopping()) {
                         CaptionState.error(generation, "OPUS A/B failed: ${t.message}")
                         rejectRequest(request, "OPUS translation failed")
                     }
@@ -740,14 +852,19 @@ class CaptionSession(
             }
         } catch (t: Throwable) {
             if (!startupReported) { failStartupIfUnreported(WORKER_OPUS, t); startupReported = true }
-            if (!lifecycle.isCancelled()) CaptionState.error(generation, "OPUS A/B unavailable; Hy-MT2 captions continue: ${t.message}")
+            if (!lifecycle.isStopping()) CaptionState.error(generation, "OPUS A/B unavailable; Hy-MT2 captions continue: ${t.message}")
         } finally {
             if (!startupReported) failStartupIfUnreported(WORKER_OPUS,
                 CancellationException("OPUS worker stopped before becoming ready"))
             try {
                 runCatching { performanceHint?.close() }
                 translator?.close()
-            } finally { opusTranslator = null }
+            } finally {
+                opusTranslator = null
+                opusLoadScope = null
+                runCatching { loadScope.release() }
+                trace("opus-worker-stopped")
+            }
         }
     }
 

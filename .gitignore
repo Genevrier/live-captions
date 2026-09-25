@@ -17,3 +17,5 @@ app/libs/*.aar
 keystore.properties
 signing.properties
 __pycache__/
+.kotlin/
+.container-home/

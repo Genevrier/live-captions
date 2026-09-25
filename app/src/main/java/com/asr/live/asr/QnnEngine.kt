@@ -14,7 +14,9 @@ class QnnEngine(private val ctx: Context, private val language: String, private 
                 private val onPartial: (String) -> Unit, private val onFinal: (String) -> Unit,
                 private val onBackend: (String) -> Unit, private val onGap: () -> Unit,
                 private val sessionId: Long = 0L,
-                private val onProfile: (QnnProfileStats) -> Unit = {}) : AsrEngine {
+                private val onProfile: (QnnProfileStats) -> Unit = {},
+                /** Lets Stop abandon startup instead of paying for a CPU engine nobody will use. */
+                private val isAborted: () -> Boolean = { false }) : AsrEngine {
     @Volatile private var remoteDecodeStats = AsrDecodeStats()
     private val qnnProfileTelemetry = QnnProfileTelemetry()
     override val pipelineStats: AsrPipelineStats get() = cpu?.pipelineStats ?: remotePipelineStats.get()
@@ -40,17 +42,23 @@ class QnnEngine(private val ctx: Context, private val language: String, private 
             check(Build.VERSION.SDK_INT >= 31 && BackendPolicy.qnnEligible(Build.SOC_MODEL, com.asr.live.BuildConfig.QNN_ENABLED)) { "Requires SM8750 and the QNN build" }
             ModelStore.verify(ctx, ModelCatalog.NEMOTRON_QNN)
             bound = ctx.bindService(Intent(ctx, QnnService::class.java), connection, Context.BIND_AUTO_CREATE)
-            check(bound && connected.await(10, TimeUnit.SECONDS)) { "QNN process connection timed out" }
-            remotePid = call(2) { it.pid() }
-            val initialized = call(40) { it.initialize(ModelStore.dir(ctx, ModelCatalog.NEMOTRON_QNN.id).absolutePath,
-                language, threads, sessionId) }
+            check(bound && connected.await(QnnStartup.BIND_TIMEOUT_MS, TimeUnit.MILLISECONDS)) { "QNN process connection timed out" }
+            checkNotAborted()
+            remotePid = call(QnnStartup.PID_TIMEOUT_MS) { it.pid() }
+            checkNotAborted()
+            val initialized = call(QnnStartup.INITIALIZE_TIMEOUT_MS) {
+                it.initialize(ModelStore.dir(ctx, ModelCatalog.NEMOTRON_QNN.id).absolutePath,
+                    language, threads, sessionId) }
             qnnProfileTelemetry.recordInitialization(initialized)
             onProfile(qnnProfileTelemetry.snapshot())
             // Do not claim active NPU until the first actual decoder call succeeds.
             onBackend("QNN initializing · experimental")
         } catch (t: Exception) { fallback(t) }
     }
-    private fun <T> call(seconds: Long, dataPlane: Boolean = false, fn: (IQnnRecognizer) -> T): T {
+    private fun checkNotAborted() {
+        if (isAborted()) throw InterruptedException("QNN startup abandoned after stop")
+    }
+    private fun <T> call(timeoutMs: Long, dataPlane: Boolean = false, fn: (IQnnRecognizer) -> T): T {
         val queuedAtNs = System.nanoTime()
         val startedAtNs = AtomicLong(0L)
         val future = rpc.submit<T> {
@@ -58,7 +66,7 @@ class QnnEngine(private val ctx: Context, private val language: String, private 
             fn(checkNotNull(remote) { "QNN process unavailable" })
         }
         return try {
-            val result = future.get(seconds, TimeUnit.SECONDS)
+            val result = future.get(timeoutMs, TimeUnit.MILLISECONDS)
             val finishedAtNs = System.nanoTime()
             if (dataPlane && result is Bundle) {
                 val rpcServiceNs = result.getLong("qnn_service_ns")
@@ -84,6 +92,8 @@ class QnnEngine(private val ctx: Context, private val language: String, private 
         decodeStatsAccumulator.retire(remoteDecodeStats)
         disconnect(); rpc.shutdownNow()
         if (reason is InterruptedException) throw reason
+        // Never build a CPU recognizer for a session the user already stopped.
+        if (isAborted()) throw InterruptedException("QNN fallback abandoned after stop")
         ModelStore.verify(ctx, ModelCatalog.NEMOTRON)
         cpu = EngineFactory.create(ctx, ModelCatalog.NEMOTRON, language, "transcribe", onPartial, onFinal, threads)
         onBackend("CPU · QNN fallback: ${reason.cause?.message ?: reason.message}")
@@ -91,7 +101,7 @@ class QnnEngine(private val ctx: Context, private val language: String, private 
     override fun accept(samples: FloatArray) {
         cpu?.let { it.accept(samples); return }
         try {
-            val result = call(5, dataPlane = true) { it.accept(samples) }
+            val result = call(QnnStartup.ACCEPT_TIMEOUT_MS, dataPlane = true) { it.accept(samples) }
             onBackend("QNN/NPU · experimental")
             dispatch(result)
         } catch (t: Exception) { onGap(); fallback(t); cpu!!.accept(samples) }
@@ -99,7 +109,7 @@ class QnnEngine(private val ctx: Context, private val language: String, private 
     override fun finish() {
         cpu?.let { it.finish(); return }
         try {
-            val result = call(10, dataPlane = true) { it.finish() }
+            val result = call(QnnStartup.FINISH_TIMEOUT_MS, dataPlane = true) { it.finish() }
             dispatch(result)
         } catch (t: Exception) {
             onGap()
