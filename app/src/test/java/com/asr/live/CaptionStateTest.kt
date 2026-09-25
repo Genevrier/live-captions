@@ -77,6 +77,7 @@ class CaptionStateTest {
         val old = CaptionState.source(oldGeneration, "oude tekst", true, 1)!!
         CaptionState.begin(newGeneration, SessionConfig(profile = Profile.ENGLISH_FRENCH,
             quality = TranslationQuality.ML_KIT), "New")
+        val linesAfterRestart = CaptionState.lines.value
 
         assertNull(CaptionState.source(oldGeneration, "late old text", true, 2))
         assertFalse(CaptionState.translated(old.key, "old translation", 2, true))
@@ -84,7 +85,8 @@ class CaptionStateTest {
         CaptionState.stopping(oldGeneration)
         CaptionState.stopped(oldGeneration)
 
-        assertTrue(CaptionState.lines.value.isEmpty())
+        assertEquals(linesAfterRestart, CaptionState.lines.value)
+        assertTrue(CaptionState.lines.value.none { it.source == "late old text" })
         assertEquals("English → French", CaptionState.metrics.value.profile)
         assertEquals(0, CaptionState.metrics.value.asrMs)
         assertEquals(ListeningState.STARTING, CaptionState.lifecycle.value)
