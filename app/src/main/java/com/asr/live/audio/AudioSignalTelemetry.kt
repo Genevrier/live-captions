@@ -16,7 +16,7 @@ data class AudioSignalSnapshot(
     val lastMonotonicNs: Long? = null,
 )
 
-/** Captured PCM16 amplitude and callback-timeline checks; timestamps use Android's monotonic clock. */
+/** Captured PCM16 amplitude and callback-timeline checks; timestamps use the system monotonic clock. */
 internal class AudioSignalTelemetry(private val timestampToleranceNs: Long = 250_000_000L) {
     private var sampleRateHz = AudioCapture.SAMPLE_RATE
     private var samples = 0L

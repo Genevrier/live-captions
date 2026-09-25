@@ -68,7 +68,7 @@ class CaptionSession(
     private val requestSequence = AtomicLong()
     private val activeHyRequest = AtomicReference<TranslationRequest?>()
     private val hyScheduleLock = Any()
-    private val sessionStartedAtNs = SystemClock.elapsedRealtimeNanos()
+    private val sessionStartedAtNs = System.nanoTime()
     private val captureFinished = AtomicBoolean(false)
     private val inferenceBusy = AtomicBoolean(false)
     @Volatile private var activeFinalEndpoint: Long? = null
@@ -92,7 +92,7 @@ class CaptionSession(
     private val capture = AudioCapture(ctx,
         onChunk = { samples ->
             if (!lifecycle.isCancelled()) {
-                val capturedAtNs = SystemClock.elapsedRealtimeNanos()
+                val capturedAtNs = System.nanoTime()
                 val firstSample = capturedSamples.getAndAdd(samples.size.toLong())
                 val signal = audioSignalTelemetry.accept(samples, capturedAtNs)
                 CaptionState.metrics(generation) { it.copy(audioSampleRateHz = signal.sampleRateHz,
@@ -772,7 +772,7 @@ class CaptionSession(
     }
     private fun captionAge(): Long = listOfNotNull(activeFinalEndpoint, finals.peek()?.endpointAt).minOrNull()?.let { (now() - it).coerceAtLeast(0) } ?: 0
     private fun now() = SystemClock.elapsedRealtime()
-    private fun nowNs() = SystemClock.elapsedRealtimeNanos()
+    private fun nowNs() = System.nanoTime()
     private fun elapsedSinceNs(timestampNs: Long?): Long = timestampNs?.let { ((nowNs() - it) / 1_000_000L).coerceAtLeast(0) } ?: 0L
 
     companion object {

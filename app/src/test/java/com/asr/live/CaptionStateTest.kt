@@ -1,6 +1,5 @@
 package com.asr.live
 
-import android.os.SystemClock
 import com.asr.live.model.ModelCatalog
 import com.asr.live.pipeline.*
 import com.asr.live.service.CaptionState
@@ -142,13 +141,13 @@ class CaptionStateTest {
         val stable = CaptionState.source(id, "Goedemorgen allemaal vandaag", false, 2)!!
         val portion = TranslationPortionIdentity(id, stable.key.id, stable.stableSource)
         val requestId = 92L
-        val computedAt = SystemClock.elapsedRealtimeNanos()
+        val computedAt = System.nanoTime()
         CaptionState.resultComputed(id, stable.key, computedAt, requestId, portion)
         assertTrue(CaptionState.translatedPortion(stable.key, portion, "Good morning everyone", 0, false, requestId))
         assertEquals(1L, CaptionState.metrics.value.resultsComputed)
         assertEquals(0L, CaptionState.metrics.value.resultsDisplayed)
 
-        val displayedAt = SystemClock.elapsedRealtimeNanos()
+        val displayedAt = System.nanoTime()
         assertTrue(CaptionState.acknowledgeDisplayed(id, stable.key, displayedAt))
         assertFalse(CaptionState.acknowledgeDisplayed(id, stable.key, displayedAt + 1_000_000L))
         CaptionState.resultRejected(id, "stale translation revision")

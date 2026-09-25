@@ -6,7 +6,6 @@ import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.os.IBinder
 import android.os.Build
-import android.os.SystemClock
 import android.util.Log
 import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
@@ -69,7 +68,7 @@ class CaptionService : Service() {
 
     /** Low-rate, transcript-free snapshots make sustained device runs reproducible from logcat. */
     private fun logRunSample(generation: Long) {
-        val atNs = SystemClock.elapsedRealtimeNanos()
+        val atNs = System.nanoTime()
         val metrics = CaptionState.metrics.value
         val sessionStartNs = CaptionState.sessionStartNs(generation) ?: atNs
         val reasons = metrics.rejectionReasons.entries.sortedBy { it.key }

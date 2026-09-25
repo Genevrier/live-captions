@@ -1,7 +1,6 @@
 package com.asr.live.service
 
 import android.util.Log
-import android.os.SystemClock
 import com.asr.live.pipeline.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -77,7 +76,7 @@ object CaptionState {
     @Synchronized fun sessionStartNs(id: Long): Long? = sessionStartedAtNs[id]
     @Synchronized fun begin(id: Long, config: SessionConfig, modelName: String) {
         generation = id; ledger.start(id); comparisonLedger.clear(); displayedResults.clear(); computedAtNs.clear()
-        sessionStartedAtNs[id] = SystemClock.elapsedRealtimeNanos()
+        sessionStartedAtNs[id] = System.nanoTime()
         sessionStartedAtNs.keys.removeAll { it != id }
         publish(); publishComparisons()
         val translationLabel = if (config.opusBenchmarkEnabled)
