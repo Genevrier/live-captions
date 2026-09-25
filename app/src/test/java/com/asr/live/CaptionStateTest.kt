@@ -70,6 +70,26 @@ class CaptionStateTest {
         assertTrue(ledger.translate(new.key, "fresh", 2, true))
         assertNull(ledger.source(1, "stale", true, 3))
     }
+    @Test fun lateUpdatesFromOldSessionCannotChangeCurrentUiState() {
+        val oldGeneration = 995_301L
+        val newGeneration = 995_302L
+        CaptionState.begin(oldGeneration, SessionConfig(quality = TranslationQuality.ML_KIT), "Old")
+        val old = CaptionState.source(oldGeneration, "oude tekst", true, 1)!!
+        CaptionState.begin(newGeneration, SessionConfig(profile = Profile.ENGLISH_FRENCH,
+            quality = TranslationQuality.ML_KIT), "New")
+
+        assertNull(CaptionState.source(oldGeneration, "late old text", true, 2))
+        assertFalse(CaptionState.translated(old.key, "old translation", 2, true))
+        CaptionState.metrics(oldGeneration) { it.copy(asrMs = 999) }
+        CaptionState.stopping(oldGeneration)
+        CaptionState.stopped(oldGeneration)
+
+        assertTrue(CaptionState.lines.value.isEmpty())
+        assertEquals("English → French", CaptionState.metrics.value.profile)
+        assertEquals(0, CaptionState.metrics.value.asrMs)
+        assertEquals(ListeningState.STARTING, CaptionState.lifecycle.value)
+        CaptionState.stopped(newGeneration)
+    }
     @Test fun stoppingCancelsPendingCaptions() {
         val ledger = SegmentLedger(); ledger.start(1)
         val row = ledger.source(1, "partial", false, 0)!!
@@ -88,6 +108,14 @@ class CaptionStateTest {
         assertEquals(partial.key.id, endpoint.key.id)
         assertTrue(CaptionState.translated(endpoint.key, "I think so", 2, true))
         assertEquals(CaptionStage.FINAL, CaptionState.lines.value.single().stage)
+        CaptionState.stopped(id)
+    }
+    @Test fun lateMicrophoneStartedCallbackCannotUndoStartupCancellation() {
+        val id = 995_203L
+        CaptionState.begin(id, SessionConfig(quality = TranslationQuality.ML_KIT), "Nemotron")
+        CaptionState.cancel(id)
+        CaptionState.listening(id)
+        assertEquals(ListeningState.STOPPING, CaptionState.lifecycle.value)
         CaptionState.stopped(id)
     }
     @Test fun clearDoesNotReuseIds() {

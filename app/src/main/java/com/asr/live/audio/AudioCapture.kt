@@ -20,10 +20,13 @@ class AudioCapture(
     }
     private val active = AtomicBoolean(true)
     private var worker: Thread? = null
-    fun start() { worker = Thread(::loop, "microphone").also { it.start() } }
-    fun stopCapturing() { active.set(false) }
-    fun cancel() { active.set(false); worker?.interrupt() }
-    fun join() { worker?.join() }
+    @Synchronized fun start() {
+        if (!active.get() || worker != null) return
+        worker = Thread(::loop, "microphone").also { it.start() }
+    }
+    @Synchronized fun stopCapturing() { active.set(false) }
+    @Synchronized fun cancel() { active.set(false); worker?.interrupt() }
+    @Synchronized fun threadForJoin(): Thread? = worker
     @SuppressLint("MissingPermission")
     private fun loop() {
         var recorder: AudioRecord? = null

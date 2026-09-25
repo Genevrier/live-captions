@@ -11,7 +11,6 @@ import androidx.core.content.ContextCompat
 import com.asr.live.MainActivity
 import com.asr.live.model.ModelCatalog
 import com.asr.live.pipeline.*
-import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicLong
 import android.provider.Settings
 import android.net.Uri
@@ -20,12 +19,13 @@ import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
 
 class CaptionService : Service() {
-    private val control = Executors.newSingleThreadExecutor()
     @Volatile private var displayedGeneration = 0L
     @Volatile private var current: CaptionSession? = null
     @Volatile private var destroyed = false
     @Volatile private var latestStartId = 0
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+    private val shutdownScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val terminationWaiters = mutableMapOf<CaptionSession, MutableList<() -> Unit>>()
     private lateinit var overlayPrefs: OverlayPreferences
     private lateinit var overlay: FloatingCaptions
     private var notificationModel = "Live captions"
@@ -73,22 +73,20 @@ class CaptionService : Service() {
         val generation = requests.incrementAndGet()
         if (intent?.action == ACTION_STOP || intent == null) {
             val stoppedGeneration = displayedGeneration
+            val session = current
             if (CaptionState.lifecycle.value == ListeningState.LISTENING) {
                 CaptionState.stopping(stoppedGeneration)
-                current?.stop()
+                session?.stop()
             } else {
                 CaptionState.cancel(stoppedGeneration)
-                current?.cancel()
+                session?.cancel()
             }
-            control.execute {
-                current?.join(); current = null
-                scope.launch {
-                    // Serialize the final stop with Android's main-thread start commands.
-                    if (generation == requests.get()) {
-                        CaptionState.stopped(stoppedGeneration)
-                        stopForeground(STOP_FOREGROUND_REMOVE)
-                        stopSelfResult(latestStartId)
-                    }
+            if (session == null) {
+                finishStop(stoppedGeneration, generation)
+            } else {
+                afterTermination(session) {
+                    if (current === session) current = null
+                    finishStop(stoppedGeneration, generation)
                 }
             }
             return START_NOT_STICKY
@@ -110,38 +108,82 @@ class CaptionService : Service() {
         startForegroundNotification(ModelCatalog.byId(config.modelId)?.displayName ?: "Loading captions")
         displayedGeneration = generation
         CaptionState.begin(generation, config, ModelCatalog.byId(config.modelId)?.shortName ?: "Nemotron")
-        current?.cancel()
-        control.execute {
-            current?.join(); current = null
-            if (destroyed || generation != requests.get()) return@execute
-            val session = CaptionSession(applicationContext, generation, config) { message ->
-                CaptionState.error(generation, message)
-                CaptionState.cancel(generation)
-                if (!destroyed) runCatching { control.execute {
-                    if (generation == requests.get()) {
-                        current?.cancel(); current?.join(); current = null
-                        scope.launch {
-                            if (generation == requests.get()) {
-                                CaptionState.stopped(generation)
-                                stopForeground(STOP_FOREGROUND_REMOVE); stopSelfResult(latestStartId)
-                            }
-                        }
-                    }
-                } }
+        val previous = current
+        if (previous == null) {
+            createAndStartSession(generation, config)
+        } else {
+            previous.cancel()
+            afterTermination(previous) {
+                if (current === previous) current = null
+                if (!destroyed && generation == requests.get()) createAndStartSession(generation, config)
             }
-            current = session
-            if (destroyed || generation != requests.get()) session.cancel() else session.start()
         }
         return START_NOT_STICKY
     }
     override fun onDestroy() {
-        scope.cancel(); overlay.close(); overlayPrefs.close()
         destroyed = true; requests.incrementAndGet()
+        scope.cancel(); shutdownScope.cancel(); terminationWaiters.clear()
+        overlay.close(); overlayPrefs.close()
         current?.let { CaptionState.cancel(it.generation); it.cancel() }
-        control.execute { current?.let { it.join(); CaptionState.stopped(it.generation) }; current = null }
-        control.shutdown()
+        current = null
         super.onDestroy()
     }
+
+    private fun createAndStartSession(generation: Long, config: SessionConfig) {
+        if (destroyed || generation != requests.get()) return
+        lateinit var session: CaptionSession
+        session = CaptionSession(applicationContext, generation, config) { message ->
+            CaptionState.error(generation, message)
+            CaptionState.cancel(generation)
+            scope.launch {
+                if (!destroyed && generation == requests.get() && current === session) {
+                    afterTermination(session) {
+                        if (current === session) current = null
+                        finishStop(generation, generation)
+                    }
+                }
+            }
+        }
+        current = session
+        try {
+            session.start()
+        } catch (t: Throwable) {
+            CaptionState.error(generation, "Could not start workers: ${t.message}")
+            CaptionState.cancel(generation)
+            session.cancel()
+            afterTermination(session) {
+                if (current === session) current = null
+                finishStop(generation, generation)
+            }
+        }
+    }
+
+    /** Wait for worker-owned native cleanup off the main and service control threads. */
+    private fun afterTermination(session: CaptionSession, action: () -> Unit) {
+        terminationWaiters[session]?.let { it += action; return }
+        terminationWaiters[session] = mutableListOf(action)
+        shutdownScope.launch {
+            try {
+                while (isActive && !session.join(250)) { }
+            } catch (_: InterruptedException) {
+                Thread.currentThread().interrupt()
+                return@launch
+            }
+            if (!isActive) return@launch
+            withContext(Dispatchers.Main.immediate) {
+                val actions = terminationWaiters.remove(session).orEmpty()
+                actions.forEach { it() }
+            }
+        }
+    }
+
+    private fun finishStop(stoppedGeneration: Long, requestGeneration: Long) {
+        if (destroyed || requestGeneration != requests.get()) return
+        CaptionState.stopped(stoppedGeneration)
+        stopForeground(STOP_FOREGROUND_REMOVE)
+        stopSelfResult(latestStartId)
+    }
+
     private fun startForegroundNotification(modelName: String) {
         notificationModel = modelName
         val nm = getSystemService(NotificationManager::class.java)

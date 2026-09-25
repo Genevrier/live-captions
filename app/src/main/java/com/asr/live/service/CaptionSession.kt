@@ -9,8 +9,7 @@ import com.asr.live.i18n.LocalTranslator
 import com.asr.live.i18n.NativeTranslator
 import com.asr.live.model.*
 import com.asr.live.pipeline.*
-import java.util.concurrent.CountDownLatch
-import java.util.concurrent.TimeUnit
+import java.util.concurrent.CancellationException
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
 
@@ -34,11 +33,9 @@ class CaptionSession(
     private val config: SessionConfig,
     private val onFailure: (String) -> Unit,
 ) {
-    private val active = AtomicBoolean(true)
-    private val stopping = AtomicBoolean(false)
-    private val asrFinished = AtomicBoolean(false)
     private val correctionEnabled = config.correction && config.profile.correctionSupported && ModelCatalog.byId(config.modelId)?.kind == EngineKind.NEMOTRON
-    private val correctionFinished = AtomicBoolean(!correctionEnabled)
+    private val lifecycle = SessionLifecycle(correctionEnabled)
+    private val failureReported = AtomicBoolean(false)
     private val audioQueue = BoundedMailbox<AudioChunk>(16)
     private val provisional = BoundedMailbox<TranslationRequest>(1)
     private val qualityProvisional = BoundedMailbox<TranslationRequest>(1)
@@ -49,26 +46,38 @@ class CaptionSession(
     @Volatile private var correctionRtf = 0.0
     private val corrector = Thread(::correctLoop, "endpoint-correction")
     private val sequence = AtomicLong()
+    private val captureFinished = AtomicBoolean(false)
     @Volatile private var activeFinalEndpoint: Long? = null
     @Volatile private var segmentAudioStartedAtNs: Long? = null
     @Volatile private var opusTranslator: LocalTranslator? = null
     @Volatile private var finalTranslator: LocalTranslator? = null
     private val opusBenchmarkEnabled = config.opusBenchmarkEnabled
-    private val workersReady = CountDownLatch(1 + (if (opusBenchmarkEnabled) 1 else 0) + (if (correctionEnabled) 1 else 0))
+    private val startupWorkers = buildMap {
+        put(WORKER_RECOGNITION, true)
+        put(WORKER_HY_TRANSLATION, true)
+        if (correctionEnabled) put(WORKER_CORRECTION, false)
+        if (opusBenchmarkEnabled) put(WORKER_OPUS, false)
+    }
+    private val startupBarrier = WorkerStartupBarrier(startupWorkers)
     private val pcm = PcmBuffer()
     private var lastProvisionalAt = 0L
     private var lastProvisionalText = ""
     private val info = ModelCatalog.byId(config.modelId) ?: ModelCatalog.DEFAULT
     private val capture = AudioCapture(ctx,
         onChunk = { samples ->
-            if (active.get()) {
+            if (!lifecycle.isCancelled()) {
                 val dropped = audioQueue.offer(AudioChunk(samples, SystemClock.elapsedRealtimeNanos(), sequence.incrementAndGet()))
                 CaptionState.metrics(generation) { it.copy(audioDepth = audioQueue.size(),
                     droppedAudioMs = it.droppedAudioMs + (dropped?.samples?.size ?: 0) / 16) }
             }
         },
-        onStarted = { if (active.get()) CaptionState.listening(generation) },
-        onFinished = { if (stopping.get()) audioQueue.closeForDrain() },
+        onStarted = { if (!lifecycle.isCancelled()) CaptionState.listening(generation) },
+        onFinished = {
+            if (lifecycle.isStopping()) {
+                captureFinished.set(true)
+                audioQueue.closeForDrain()
+            }
+        },
         onError = { fail("Microphone: ${it.message}") })
     private val asr = Thread(::recognize, "recognition")
     private val opus = Thread(::opusLoop, "opus-ab-translation")
@@ -76,48 +85,63 @@ class CaptionSession(
     fun start() { if (opusBenchmarkEnabled) opus.start(); final.start(); corrector.start(); asr.start() }
     /** Gracefully stop input, drain queued PCM, flush ASR and finish caption translations. */
     fun stop() {
-        if (active.get() && stopping.compareAndSet(false, true)) capture.stopCapturing()
+        if (lifecycle.requestStop()) capture.stopCapturing()
     }
     fun cancel() {
-        active.set(false); capture.cancel()
-        opusTranslator?.cancel(); finalTranslator?.cancel()
-        audioQueue.close(); provisional.close(); qualityProvisional.close(); finals.close(); correctionQueue.close().forEach { it.samples.fill(0f) }
-        asr.interrupt(); opus.interrupt(); final.interrupt(); corrector.interrupt()
+        if (!lifecycle.cancel()) return
+        interruptWorkers()
     }
-    fun join() { asr.join(); capture.join(); if (opusBenchmarkEnabled) opus.join(); final.join(); corrector.join() }
+    private fun interruptWorkers() {
+        runCatching { capture.cancel() }
+        runCatching { opusTranslator?.cancel() }; runCatching { finalTranslator?.cancel() }
+        audioQueue.close().forEach { it.samples.fill(0f) }
+        provisional.close(); qualityProvisional.close(); finals.close()
+        correctionQueue.close().forEach { it.samples.fill(0f) }
+        listOf(asr, opus, final, corrector).forEach { runCatching { it.interrupt() } }
+    }
+    /** A short bounded wait. Service callers retry this from an IO coroutine. */
+    fun join(timeoutMs: Long = 250): Boolean = joinThreadsWithin(
+        listOf(asr, capture.threadForJoin(), if (opusBenchmarkEnabled) opus else null, final, corrector), timeoutMs)
     private fun fail(message: String) {
-        if (active.compareAndSet(true, false)) { onFailure(message); cancel() }
+        if (failureReported.compareAndSet(false, true) && lifecycle.cancel()) {
+            try { onFailure(message) } finally { interruptWorkers() }
+        }
     }
     private fun recognize() {
         var engine: com.asr.live.asr.AsrEngine? = null
+        var performanceHint: WorkerPerformanceHint? = null
+        var startupReported = false
         // AudioCapture sends one 100 ms (1600 samples at 16 kHz) unit per
         // worker iteration. Nemotron's model chunk profile is not the ADPF
         // workload duration: it can contain several microphone callbacks.
-        val performanceHint = WorkerPerformanceHint(ctx, AudioCapture.CHUNK_DURATION_MS)
-        CaptionState.metrics(generation) { it.copy(adpfActive = performanceHint.enabled) }
         val continuity = AudioContinuity()
         var qnnFailed = false
         var audioMs = 0L
         var computeMs = 0L
         try {
+            performanceHint = WorkerPerformanceHint(ctx, AudioCapture.CHUNK_DURATION_MS)
+            CaptionState.metrics(generation) { it.copy(adpfActive = performanceHint?.enabled == true) }
             require(info.supports(config.profile.source)) { "${info.shortName} does not support ${config.profile.source}" }
             require(!config.qnn || info.kind != EngineKind.NEMOTRON || info.id == ModelCatalog.NEMOTRON.id) { "QNN currently supports only the separate 560 ms context" }
             ModelStore.verify(ctx, info)
-            if (!active.get()) return
+            if (lifecycle.isCancelled()) return
             fun create(): com.asr.live.asr.AsrEngine = if (config.qnn && !qnnFailed && info.kind == EngineKind.NEMOTRON)
                 com.asr.live.asr.QnnEngine(ctx, config.profile.source, config.threads, ::partial, ::endpoint,
                     { backend -> if (backend.startsWith("CPU")) qnnFailed = true; CaptionState.metrics(generation) { it.copy(backend = backend) } },
                     { pcm.invalidate(); CaptionState.discontinuity(generation) })
             else EngineFactory.create(ctx, info, config.profile.source, "transcribe", ::partial, ::endpoint, config.threads)
             engine = create()
-            if (!active.get()) return
-            while (active.get() && !workersReady.await(250, TimeUnit.MILLISECONDS)) { }
-            if (!active.get()) return
+            startupBarrier.ready(WORKER_RECOGNITION); startupReported = true
+            startupBarrier.await()
+            startupBarrier.requiredFailures().firstOrNull()?.let {
+                throw IllegalStateException("${it.worker} failed during startup: ${it.cause.message}", it.cause)
+            }
+            if (lifecycle.isCancelled()) return
             capture.start()
-            while (active.get()) {
+            while (!lifecycle.isCancelled()) {
                 val chunk = audioQueue.poll()
                 if (chunk == null) {
-                    if (stopping.get()) {
+                    if (lifecycle.shouldFinishAsr(audioQueue.size() > 0, captureFinished.get())) {
                         checkNotNull(engine).finish()
                         break
                     }
@@ -139,21 +163,29 @@ class CaptionSession(
                 val start = now()
                 checkNotNull(engine).accept(chunk.samples)
                 val duration = now() - start
-                performanceHint.report(duration)
+                performanceHint?.report(duration)
                 computeMs += duration; audioMs += chunk.samples.size / 16
                 CaptionState.metrics(generation) { it.copy(asrMs = duration,
                     asrRtf = computeMs.toDouble() / maxOf(1, audioMs), audioDepth = audioQueue.size(),
                     backlogMs = ((nowNs() - chunk.capturedAtNs) / 1_000_000L).coerceAtLeast(0), captionBacklogMs = captionAge()) }
             }
-        } catch (_: InterruptedException) {
-        } catch (t: Throwable) { if (active.get()) fail("Recognition: ${t.message}") }
+        } catch (e: InterruptedException) {
+            if (!startupReported) { startupBarrier.failed(WORKER_RECOGNITION, e); startupReported = true }
+        } catch (t: Throwable) {
+            if (!startupReported) { startupBarrier.failed(WORKER_RECOGNITION, t); startupReported = true }
+            if (!lifecycle.isCancelled()) fail("Recognition: ${t.message}")
+        }
         finally {
-            performanceHint.close(); engine?.release(); capture.cancel(); pcm.take()
-            asrFinished.set(true)
+            if (!startupReported) startupBarrier.failed(WORKER_RECOGNITION,
+                CancellationException("Recognition stopped before becoming ready"))
+            runCatching { performanceHint?.close() }
+            runCatching { engine?.release() }
+            capture.cancel(); pcm.take()
+            lifecycle.markAsrFinished()
         }
     }
     private fun partial(text: String) {
-        if (!active.get() || text.isBlank()) return
+        if (lifecycle.isCancelled() || text.isBlank()) return
         val time = now()
         val row = CaptionState.source(generation, text, false, time) ?: return
         if (!ProvisionalTranslationPolicy.shouldTranslate(lastProvisionalText, row.stableSource, time, lastProvisionalAt)) return
@@ -166,7 +198,7 @@ class CaptionSession(
     }
     private fun endpoint(text: String) {
         val audio = pcm.take()
-        if (!active.get() || text.isBlank()) return
+        if (lifecycle.isCancelled() || text.isBlank()) return
         val at = now()
         val row = CaptionState.source(generation, text, true, at) ?: return
         lastProvisionalText = ""
@@ -195,17 +227,19 @@ class CaptionSession(
     private fun correctLoop() {
         if (!correctionEnabled) return
         var engine: com.asr.live.asr.EndpointCorrector? = null
-        val performanceHint = WorkerPerformanceHint(ctx, 1500)
+        var performanceHint: WorkerPerformanceHint? = null
+        var startupReported = false
         try {
+            performanceHint = WorkerPerformanceHint(ctx, 1500)
             ModelStore.verify(ctx, ModelCatalog.PARAKEET)
-            if (!active.get()) return
+            if (lifecycle.isCancelled()) return
             engine = com.asr.live.asr.EndpointCorrector(ModelStore.dir(ctx, ModelCatalog.PARAKEET.id), config.correctionThreads)
             engine.warmUp()
             correctionReady = true
-            while (active.get() || (stopping.get() && !asrFinished.get())) {
+            startupBarrier.ready(WORKER_CORRECTION); startupReported = true
+            while (lifecycle.shouldRunCorrection(correctionQueue.size() > 0, correctionBusy.get())) {
                 val job = correctionQueue.poll()
                 if (job == null) {
-                    if (stopping.get() && asrFinished.get() && !correctionBusy.get()) break
                     Thread.sleep(20); continue
                 }
                 try {
@@ -213,10 +247,10 @@ class CaptionSession(
                     val started = now()
                     val candidate = engine.decode(job.samples)
                     val elapsed = now() - started
-                    performanceHint.report(elapsed)
+                    performanceHint?.report(elapsed)
                     correctionRtf = elapsed.toDouble() / maxOf(1, job.samples.size / 16)
                     CaptionState.metrics(generation) { it.copy(correctionMs = elapsed, correctionRtf = correctionRtf) }
-                    if (active.get() && finals.size() == 0 && activeFinalEndpoint == null && CorrectionPolicy.accept(job.request.text, candidate,
+                    if (!lifecycle.isCancelled() && finals.size() == 0 && activeFinalEndpoint == null && CorrectionPolicy.accept(job.request.text, candidate,
                             now() - (job.request.endpointAt ?: started), audioQueue.size())) {
                         // Keep the existing caption pair visible until Hy has translated the
                         // second hypothesis. The accepted source and translation are published
@@ -224,22 +258,29 @@ class CaptionSession(
                         enqueueFinal(job.request.copy(text = candidate, correctionSource = candidate)); depths()
                     } else {
                         CaptionState.metrics(generation) { it.copy(skippedCorrections = it.skippedCorrections + 1) }
-                        if (active.get()) enqueueFinal(job.request)
+                        if (!lifecycle.isCancelled()) enqueueFinal(job.request)
                     }
                 } catch (t: Throwable) {
                     if (t is InterruptedException) throw t
-                    if (active.get()) {
+                    if (!lifecycle.isCancelled()) {
                         CaptionState.error(generation, "Optional correction failed; using Nemotron text: ${t.message}")
                         enqueueFinal(job.request)
                     }
                 } finally { job.samples.fill(0f); correctionBusy.set(false) }
             }
-        } catch (_: InterruptedException) {
+        } catch (e: InterruptedException) {
+            if (!startupReported) { startupBarrier.failed(WORKER_CORRECTION, e); startupReported = true }
         } catch (t: Throwable) {
-            if (active.get()) CaptionState.error(generation, "Optional correction disabled: ${t.message}")
+            if (!startupReported) { startupBarrier.failed(WORKER_CORRECTION, t); startupReported = true }
+            if (!lifecycle.isCancelled()) CaptionState.error(generation, "Optional correction disabled: ${t.message}")
         } finally {
-            workersReady.countDown(); performanceHint.close(); correctionReady = false; engine?.close()
-            correctionFinished.set(true)
+            if (!startupReported) startupBarrier.failed(WORKER_CORRECTION,
+                CancellationException("Correction worker stopped before becoming ready"))
+            try {
+                runCatching { performanceHint?.close() }
+                correctionReady = false
+                engine?.close()
+            } finally { lifecycle.markCorrectionFinished() }
         }
     }
     private fun enqueueFinal(request: TranslationRequest) {
@@ -280,16 +321,17 @@ class CaptionSession(
     private fun modelBytesFor(id: String) = TranslationModels.bundle(ctx, id).size
     private fun translateLoop() {
         var translator: LocalTranslator? = null
-        val performanceHint = WorkerPerformanceHint(ctx, 750)
+        var performanceHint: WorkerPerformanceHint? = null
+        var startupReported = false
         try {
+            performanceHint = WorkerPerformanceHint(ctx, 750)
             val engine = createTranslator()
             translator = engine
             finalTranslator = engine
             engine.warmUp()
             CaptionState.metrics(generation) { it.copy(translationBackend = engine.backend) }
-            workersReady.countDown()
-            while (active.get() || (stopping.get() && (!asrFinished.get() || !correctionFinished.get() ||
-                    finals.size() > 0 || provisional.size() > 0 || qualityProvisional.size() > 0))) {
+            startupBarrier.ready(WORKER_HY_TRANSLATION); startupReported = true
+            while (lifecycle.shouldRunHyTranslation(finals.size() > 0 || provisional.size() > 0 || qualityProvisional.size() > 0)) {
                 // Endpoints have strict priority. Each live queue has capacity one and
                 // replaces its obsolete prefix, so partial translation can never backlog.
                 val request = finals.poll() ?: if (opusBenchmarkEnabled) qualityProvisional.poll() else provisional.poll()
@@ -305,9 +347,9 @@ class CaptionSession(
                 if (isFinal) activeFinalEndpoint = request.endpointAt
                 try {
                     val result = engine.translate(request.text)
-                    if (!active.get()) break
+                    if (lifecycle.isCancelled()) break
                     val elapsed = now() - started
-                    performanceHint.report(elapsed)
+                    performanceHint?.report(elapsed)
                     val timings = engine.timings
                     val accepted = if (request.benchmarkOnly) {
                         CaptionState.comparison(generation, request.key, request.text,
@@ -326,25 +368,34 @@ class CaptionSession(
                         audioToFinalMs = if (accepted && isFinal) elapsedSinceNs(request.sourceAudioAtNs) else m.audioToFinalMs,
                         finalLatencyMs = if (accepted && isFinal && request.endpointAt != null) now() - request.endpointAt else m.finalLatencyMs) }
                 } catch (_: InterruptedException) { break }
-                catch (t: Exception) { if (!request.benchmarkOnly && active.get()) CaptionState.skip(request.key, "Translation failed: ${t.message}") }
+                catch (t: Exception) { if (!request.benchmarkOnly && !lifecycle.isCancelled()) CaptionState.skip(request.key, "Translation failed: ${t.message}") }
                 finally { if (isFinal) activeFinalEndpoint = null }
             }
-        } catch (t: Throwable) { if (active.get()) fail("Translator: ${t.message}") }
-        finally { performanceHint.close(); translator?.close(); finalTranslator = null }
+        } catch (t: Throwable) {
+            if (!startupReported) { startupBarrier.failed(WORKER_HY_TRANSLATION, t); startupReported = true }
+            if (!lifecycle.isCancelled()) fail("Translator: ${t.message}")
+        } finally {
+            if (!startupReported) startupBarrier.failed(WORKER_HY_TRANSLATION,
+                CancellationException("Translator stopped before becoming ready"))
+            try {
+                runCatching { performanceHint?.close() }
+                translator?.close()
+            } finally { finalTranslator = null }
+        }
     }
     private fun opusLoop() {
         if (!opusBenchmarkEnabled) return
         var translator: LocalTranslator? = null
-        var readySignaled = false
-        val performanceHint = WorkerPerformanceHint(ctx, 750)
+        var performanceHint: WorkerPerformanceHint? = null
+        var startupReported = false
         try {
+            performanceHint = WorkerPerformanceHint(ctx, 750)
             val engine = createOpusTranslator()
             translator = engine
             opusTranslator = engine
             engine.warmUp()
-            workersReady.countDown()
-            readySignaled = true
-            while (active.get() || (stopping.get() && (!asrFinished.get() || provisional.size() > 0))) {
+            startupBarrier.ready(WORKER_OPUS); startupReported = true
+            while (lifecycle.shouldRunOpusTranslation(provisional.size() > 0)) {
                 val request = provisional.poll()
                 if (request == null) { Thread.sleep(20); continue }
                 depths()
@@ -352,20 +403,26 @@ class CaptionSession(
                 val started = now()
                 try {
                     val result = engine.translate(request.text)
-                    if (!active.get()) break
+                    if (lifecycle.isCancelled()) break
                     val elapsed = now() - started
-                    performanceHint.report(elapsed)
+                    performanceHint?.report(elapsed)
                     CaptionState.comparison(generation, request.key, request.text,
                         ComparisonEngine.OPUS, result, elapsed)
                     CaptionState.translated(request.key, result, 0, false)
                 } catch (_: InterruptedException) { break }
-                catch (t: Exception) { if (active.get()) CaptionState.error(generation, "OPUS A/B failed: ${t.message}") }
+                catch (t: Exception) { if (!lifecycle.isCancelled()) CaptionState.error(generation, "OPUS A/B failed: ${t.message}") }
             }
         } catch (t: Throwable) {
-            if (active.get()) CaptionState.error(generation, "OPUS A/B unavailable; Hy-MT2 captions continue: ${t.message}")
-            if (!readySignaled) workersReady.countDown()
+            if (!startupReported) { startupBarrier.failed(WORKER_OPUS, t); startupReported = true }
+            if (!lifecycle.isCancelled()) CaptionState.error(generation, "OPUS A/B unavailable; Hy-MT2 captions continue: ${t.message}")
+        } finally {
+            if (!startupReported) startupBarrier.failed(WORKER_OPUS,
+                CancellationException("OPUS worker stopped before becoming ready"))
+            try {
+                runCatching { performanceHint?.close() }
+                translator?.close()
+            } finally { opusTranslator = null }
         }
-        finally { performanceHint.close(); translator?.close(); opusTranslator = null }
     }
 
     private fun depths() = CaptionState.metrics(generation) {
@@ -375,4 +432,11 @@ class CaptionSession(
     private fun now() = SystemClock.elapsedRealtime()
     private fun nowNs() = SystemClock.elapsedRealtimeNanos()
     private fun elapsedSinceNs(timestampNs: Long?): Long = timestampNs?.let { ((nowNs() - it) / 1_000_000L).coerceAtLeast(0) } ?: 0L
+
+    companion object {
+        private const val WORKER_RECOGNITION = "recognition"
+        private const val WORKER_HY_TRANSLATION = "hy-translation"
+        private const val WORKER_CORRECTION = "parakeet-correction"
+        private const val WORKER_OPUS = "opus-benchmark"
+    }
 }

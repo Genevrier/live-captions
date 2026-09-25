@@ -81,7 +81,9 @@ object CaptionState {
         if (id != generation) return
         setLifecycle(ListeningState.STOPPED); _status.value = null
     }
-    @Synchronized fun listening(id: Long) { if (id == generation) setLifecycle(ListeningState.LISTENING) }
+    @Synchronized fun listening(id: Long) {
+        if (id == generation && _lifecycle.value == ListeningState.STARTING) setLifecycle(ListeningState.LISTENING)
+    }
     @Synchronized fun metrics(id: Long, update: (Performance) -> Performance) {
         if (id == generation) _metrics.value = update(_metrics.value)
     }
