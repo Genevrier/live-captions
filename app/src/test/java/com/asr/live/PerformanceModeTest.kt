@@ -5,6 +5,8 @@ import com.asr.live.pipeline.Profile
 import com.asr.live.pipeline.SessionConfig
 import com.asr.live.pipeline.TranslationQuality
 import com.asr.live.pipeline.opusBenchmarkEnabled
+import com.asr.live.pipeline.opusStartupFallbackEnabled
+import com.asr.live.pipeline.qualityOverridesPreset
 import com.asr.live.pipeline.withMode
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -40,5 +42,25 @@ class PerformanceModeTest {
         assertFalse(SessionConfig(profile = Profile.CHINESE_ENGLISH).withMode(PerformanceMode.FAST).opusBenchmarkEnabled)
         assertFalse(SessionConfig().withMode(PerformanceMode.FAST)
             .copy(quality = TranslationQuality.ML_KIT).opusBenchmarkEnabled)
+    }
+
+    /** OPUS startup fallback must be available on Balanced/Max, not only the FAST A/B preset. */
+    @Test fun opusStartupFallbackIsIndependentOfTheBenchmarkPreset() {
+        assertTrue("Dutch -> English on Balanced still has an OPUS bundle to fall back to",
+            SessionConfig().withMode(PerformanceMode.BALANCED).opusStartupFallbackEnabled)
+        assertTrue(SessionConfig().withMode(PerformanceMode.MAX_QUALITY).opusStartupFallbackEnabled)
+        assertTrue(SessionConfig().withMode(PerformanceMode.FAST).opusStartupFallbackEnabled)
+        assertFalse("Chinese -> English has no OPUS bundle to fall back to",
+            SessionConfig(profile = Profile.CHINESE_ENGLISH).withMode(PerformanceMode.BALANCED)
+                .opusStartupFallbackEnabled)
+        assertFalse("ML Kit needs no native fallback while it downloads its own model",
+            SessionConfig().withMode(PerformanceMode.BALANCED)
+                .copy(quality = TranslationQuality.ML_KIT).opusStartupFallbackEnabled)
+    }
+
+    @Test fun qualityOverrideIsDetectedAgainstThePresetsOwnDefault() {
+        assertFalse(SessionConfig().withMode(PerformanceMode.BALANCED).qualityOverridesPreset)
+        val overridden = SessionConfig().withMode(PerformanceMode.BALANCED).copy(quality = TranslationQuality.HY_Q4)
+        assertTrue("Q4 no longer matches Balanced's own Q8 default", overridden.qualityOverridesPreset)
     }
 }

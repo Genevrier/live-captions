@@ -12,8 +12,10 @@ enum class Profile(val source: String, val target: String, val label: String) {
     }
 }
 
-enum class PerformanceMode(val label: String) {
-    FAST("Fast · Hy 1.8B Q4"), BALANCED("Balanced · Hy 1.8B Q8"), MAX_QUALITY("Max · Hy 7B Q4");
+enum class PerformanceMode(val label: String, val presetName: String, val defaultQuality: TranslationQuality) {
+    FAST("Fast · Hy 1.8B Q4", "Fast", TranslationQuality.HY_Q4),
+    BALANCED("Balanced · Hy 1.8B Q8", "Balanced", TranslationQuality.HY_Q8),
+    MAX_QUALITY("Max · Hy 7B Q4", "Max", TranslationQuality.HY_7B_Q4);
 
     companion object {
         fun defaultFor(soc: String?, manufacturer: String?, model: String?): PerformanceMode =
@@ -61,15 +63,22 @@ data class SessionConfig(
 /** Presets are explicit; manual model/backend choices remain available afterward. */
 fun SessionConfig.withMode(mode: PerformanceMode): SessionConfig {
     val recognizer = if (profile == Profile.CHINESE_ENGLISH) "qwen3-asr-0.6b-int8" else "nemotron-3.5-560ms-int8"
-    val quality = when (mode) {
-        PerformanceMode.FAST -> TranslationQuality.HY_Q4
-        PerformanceMode.BALANCED -> TranslationQuality.HY_Q8
-        PerformanceMode.MAX_QUALITY -> TranslationQuality.HY_7B_Q4
-    }
-    return copy(performanceMode = mode, modelId = recognizer, quality = quality,
+    return copy(performanceMode = mode, modelId = recognizer, quality = mode.defaultQuality,
         correction = mode == PerformanceMode.MAX_QUALITY && profile.correctionSupported)
 }
 
 /** OPUS is loaded only for the explicit low-latency A/B profile, never for Max Quality. */
 val SessionConfig.opusBenchmarkEnabled: Boolean
     get() = performanceMode == PerformanceMode.FAST && profile.fastBundle != null && quality != TranslationQuality.ML_KIT
+
+/**
+ * Whether an OPUS model can stand in for Hy-MT2 while it is still loading. Independent of the
+ * A/B benchmark preset: any profile with a fast bundle and a non-ML-Kit quality can fall back to
+ * it during startup, since OPUS loads in a fraction of the time Hy-MT2 needs.
+ */
+val SessionConfig.opusStartupFallbackEnabled: Boolean
+    get() = profile.fastBundle != null && quality != TranslationQuality.ML_KIT
+
+/** True once a manual override no longer matches the preset's own translation quality. */
+val SessionConfig.qualityOverridesPreset: Boolean
+    get() = quality != performanceMode.defaultQuality

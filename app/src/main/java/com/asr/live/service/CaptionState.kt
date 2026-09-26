@@ -6,6 +6,13 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
 enum class ListeningState { STOPPED, STARTING, LISTENING, STOPPING }
+
+/**
+ * Translator readiness, independent of whether model files are installed on disk. Model
+ * installation ("Offline ready") only means the files exist; this is whether the in-process
+ * runtime can currently translate with them.
+ */
+enum class TranslatorState { NOT_LOADED, LOADING, READY, FAILED }
 data class Performance(
     val asrMs: Long = 0, val asrRtf: Double = 0.0, val translationMs: Long = 0,
     val asrComputeMs: Long = 0, val endpointWaitMs: Long? = null,
@@ -51,6 +58,13 @@ data class Performance(
     val translationThreads: Int = 4,
     val adpfActive: Boolean = false,
     val profile: String = "Dutch → English", val chunk: String = "560 ms", val threads: Int = 6,
+    val translatorState: TranslatorState = TranslatorState.NOT_LOADED,
+    val hyModelLoadMs: Long = 0, val hyWarmupMs: Long = 0, val residentTranslatorReused: Boolean = false,
+    val startupFinalBuffered: Int = 0, val startupFinalDropped: Int = 0, val startupFinalOldestMs: Long = 0,
+    val opusStartupFallbackCount: Int = 0,
+    val timeFromListenToAsrReadyMs: Long? = null, val timeFromListenToTranslatorReadyMs: Long? = null,
+    val timeFromListenToFirstTranslatedCaptionMs: Long? = null,
+    val qualityOverridesPreset: Boolean = false,
 )
 object CaptionState {
     private val ledger = SegmentLedger()
@@ -81,13 +95,19 @@ object CaptionState {
         publish(); publishComparisons()
         val translationLabel = if (config.opusBenchmarkEnabled)
             "OPUS provisional A/B + ${config.quality.label}" else config.quality.label
+        // A manual quality override makes the preset label alone misleading (e.g. "Balanced ·
+        // Hy 1.8B Q8" while the active translator is actually Q4): show the preset name only
+        // and let `translator` (already accurate) carry the real quality.
+        val presetLabel = if (config.qualityOverridesPreset) "${config.performanceMode.presetName} (custom)"
+            else config.performanceMode.label
         _metrics.value = Performance(asr = modelName, translator = translationLabel, profile = config.profile.label, threads = config.threads,
             translationThreads = config.translationThreads,
-            performanceMode = config.performanceMode.label, correctionThreads = config.correctionThreads,
+            performanceMode = presetLabel, correctionThreads = config.correctionThreads,
             backend = if (config.qnn) "QNN initializing · experimental" else "CPU",
             translationBackend = if (config.gpuTranslation && com.asr.live.BuildConfig.OPENCL_ENABLED)
                 "Adreno OpenCL requested · initializing" else "CPU",
-            chunk = com.asr.live.model.ModelCatalog.byId(config.modelId)?.chunkMs?.let { "$it ms" } ?: "VAD phrases")
+            chunk = com.asr.live.model.ModelCatalog.byId(config.modelId)?.chunkMs?.let { "$it ms" } ?: "VAD phrases",
+            translatorState = TranslatorState.NOT_LOADED, qualityOverridesPreset = config.qualityOverridesPreset)
         _error.value = null; setLifecycle(ListeningState.STARTING)
     }
     @Synchronized fun source(id: Long, text: String, endpoint: Boolean, nowMs: Long): Caption? =

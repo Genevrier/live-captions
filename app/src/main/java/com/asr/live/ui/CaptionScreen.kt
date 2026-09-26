@@ -356,6 +356,14 @@ private fun PerformancePanel(m: Performance) {
         "Model files on disk ≈ ${m.modelFilesDiskKb / 1024} MiB (not RAM) · system available ${m.availableKb / 1024} MiB · " +
         "thermal ${m.thermalStatus} · max readable sensor ${m.thermalMaxC?.let { "%.1f°C".format(it) } ?: "unavailable"} " +
         "(${m.readableThermalSensors} zones)\n" +
-        "ADPF work-duration hints ${if (m.adpfActive) "active" else "unavailable"} · sampled every 5 s"
+        "ADPF work-duration hints ${if (m.adpfActive) "active" else "unavailable"} · sampled every 5 s\n" +
+        "Translation runtime: ${m.translatorState.name.lowercase()} · Hy load ${m.hyModelLoadMs} ms" +
+        (if (m.hyWarmupMs > 0) " · warm-up ${m.hyWarmupMs} ms" else "") +
+        " · resident model reused: ${if (m.residentTranslatorReused) "yes" else "no"}\n" +
+        "Listen → ASR ready ${m.timeFromListenToAsrReadyMs?.let { "$it ms" } ?: "—"} · " +
+        "→ translator ready ${m.timeFromListenToTranslatorReadyMs?.let { "$it ms" } ?: "—"} · " +
+        "→ first translated caption ${m.timeFromListenToFirstTranslatedCaptionMs?.let { "$it ms" } ?: "—"}\n" +
+        "Startup backlog: buffered ${m.startupFinalBuffered} · expired ${m.startupFinalDropped} · " +
+        "oldest ${m.startupFinalOldestMs} ms · OPUS startup fallbacks used ${m.opusStartupFallbackCount}"
     Text(text, style = MaterialTheme.typography.bodySmall, modifier = Modifier.fillMaxWidth().heightIn(max = 220.dp).verticalScroll(rememberScrollState()).padding(bottom = 8.dp))
 }

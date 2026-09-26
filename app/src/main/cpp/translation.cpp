@@ -13,6 +13,7 @@
 #include <fstream>
 #include <functional>
 #include <limits>
+#include <map>
 #include <mutex>
 #include <sstream>
 #include <stdexcept>
@@ -24,6 +25,38 @@ using json = nlohmann::json;
 void TranslationEngine::checkCancelled() const {
     if (cancelled.load()) throw std::runtime_error("Translation cancelled");
 }
+
+namespace {
+std::mutex loadControlRegistryMutex;
+std::map<int64_t, std::shared_ptr<ModelLoadControl>> loadControlRegistry;
+int64_t nextLoadControlId = 1;
+}
+
+int64_t create_model_load_control() {
+    std::lock_guard<std::mutex> guard(loadControlRegistryMutex);
+    const int64_t id = nextLoadControlId++;
+    loadControlRegistry.emplace(id, std::make_shared<ModelLoadControl>());
+    return id;
+}
+
+void cancel_model_load_control(int64_t id) {
+    // Take a reference under the lock: the flag is then set on a token that cannot be freed
+    // underneath this call even if the owner releases the id concurrently.
+    if (auto control = model_load_control(id)) control->cancelled.store(true);
+}
+
+void release_model_load_control(int64_t id) {
+    std::lock_guard<std::mutex> guard(loadControlRegistryMutex);
+    loadControlRegistry.erase(id);
+}
+
+std::shared_ptr<ModelLoadControl> model_load_control(int64_t id) {
+    if (id == 0) return nullptr;
+    std::lock_guard<std::mutex> guard(loadControlRegistryMutex);
+    const auto entry = loadControlRegistry.find(id);
+    return entry == loadControlRegistry.end() ? nullptr : entry->second;
+}
+
 namespace {
 using Model = std::unique_ptr<llama_model, decltype(&llama_model_free)>;
 using Context = std::unique_ptr<llama_context, decltype(&llama_free)>;
@@ -113,6 +146,8 @@ std::string trimProgress(std::string value) {
 class HyMt final : public TranslationEngine {
     Model model{nullptr, llama_model_free};
     Context context{nullptr, llama_free};
+    // Held for the engine's whole lifetime so the OpenCL-to-CPU reload is cancellable too.
+    std::shared_ptr<ModelLoadControl> loadControl;
     std::string path;
     std::string activeBackend = "CPU";
     int threads, batch, ubatch;
@@ -145,9 +180,22 @@ class HyMt final : public TranslationEngine {
         return nullptr;
     }
 
+    void throwIfLoadCancelled() const {
+        if (loadControl && loadControl->cancelled.load())
+            throw std::runtime_error("Hy-MT2 model load cancelled");
+    }
+
     void initialize(ggml_backend_dev_t device) {
         if (batch <= 0 || ubatch <= 0 || ubatch > batch) throw std::runtime_error("Invalid translation batch/ubatch configuration");
+        // A Stop that lands before the first weight is read must not start the load at all.
+        throwIfLoadCancelled();
         auto params = llama_model_default_params();
+        if (loadControl) {
+            params.progress_callback = [](float, void * data) {
+                return !static_cast<ModelLoadControl *>(data)->cancelled.load();
+            };
+            params.progress_callback_user_data = loadControl.get();
+        }
         params.n_gpu_layers = device ? -1 : 0;
         params.split_mode = LLAMA_SPLIT_MODE_NONE;
         std::array<ggml_backend_dev_t, 2> devices{device, nullptr};
@@ -160,6 +208,8 @@ class HyMt final : public TranslationEngine {
         try { model.reset(llama_model_load_from_file(path.c_str(), params)); }
         catch (...) { modelLoadLog = previousCapture; throw; }
         modelLoadLog = previousCapture;
+        // A cancelled progress callback aborts the load and yields a null model.
+        throwIfLoadCancelled();
         if (!model) throw std::runtime_error("Hy-MT2 model load failed");
         auto options = llama_context_default_params();
         options.n_ctx = 2048; options.n_batch = batch; options.n_ubatch = ubatch;
@@ -193,6 +243,8 @@ class HyMt final : public TranslationEngine {
     std::string run(const std::string & prompt, const TranslationRequestMetadata & request,
                     const TranslationProgressCallback & callback, bool allowPrefixCache) {
         checkCancelled();
+        // A cancelled or failed (re)initialization leaves no model behind; never dereference it.
+        if (!model || !context) throw std::runtime_error("Hy-MT2 engine is not loaded");
         const auto requestStart = std::chrono::steady_clock::now();
         const auto * vocab = llama_model_get_vocab(model.get());
         const auto * format = llama_model_chat_template(model.get(), nullptr);
@@ -349,8 +401,9 @@ class HyMt final : public TranslationEngine {
     }
 public:
     HyMt(const std::string & modelPath, int cpuThreads, int contextBatch, int contextUbatch,
-         bool preferOpenCL, const std::string & cacheDir)
-        : path(modelPath), threads(cpuThreads), batch(contextBatch), ubatch(contextUbatch), preferOpenCL(preferOpenCL) {
+         bool preferOpenCL, const std::string & cacheDir, int64_t loadControlId)
+        : loadControl(model_load_control(loadControlId)), path(modelPath), threads(cpuThreads),
+          batch(contextBatch), ubatch(contextUbatch), preferOpenCL(preferOpenCL) {
 #if defined(TRANSLATION_OPENCL)
         if (!cacheDir.empty()) setenv("GGML_OPENCL_KERNEL_CACHE_DIR", cacheDir.c_str(), 1);
         // Set these before llama's one-time backend initialization, including CPU A/B runs.
@@ -370,7 +423,10 @@ public:
                     ggml_backend_free(probe);
                     try { initialize(device); return; }
                     catch (...) {
-                        context.reset(); model.reset(); ++fallbackCount;
+                        context.reset(); model.reset();
+                        // A cancelled load must not be retried on CPU: Stop asked for no model.
+                        throwIfLoadCancelled();
+                        ++fallbackCount;
                         openClFailure = "CPU · Adreno OpenCL initialization failed; fallback";
                     }
                 } else {
@@ -403,7 +459,7 @@ public:
             cachedConfiguration.clear();
             cachedPositionMax = -1;
             if (!opencl || cancelled.load()) {
-                llama_memory_clear(llama_get_memory(context.get()), true);
+                if (context) llama_memory_clear(llama_get_memory(context.get()), true);
                 throw;
             }
             fallbackToCpu();
@@ -415,7 +471,7 @@ public:
             }
             catch (...) {
                 cacheValid = false;
-                llama_memory_clear(llama_get_memory(context.get()), true);
+                if (context) llama_memory_clear(llama_get_memory(context.get()), true);
                 throw;
             }
         }
@@ -438,7 +494,7 @@ public:
             cachedConfiguration.clear();
             cachedPositionMax = -1;
             if (!opencl || cancelled.load()) {
-                llama_memory_clear(llama_get_memory(context.get()), true);
+                if (context) llama_memory_clear(llama_get_memory(context.get()), true);
                 throw;
             }
             fallbackToCpu();
@@ -449,7 +505,7 @@ public:
                 return result;
             } catch (...) {
                 cacheValid = false;
-                llama_memory_clear(llama_get_memory(context.get()), true);
+                if (context) llama_memory_clear(llama_get_memory(context.get()), true);
                 throw;
             }
         }
@@ -474,7 +530,15 @@ class Opus final : public TranslationEngine {
     std::vector<std::string> pieces, in_names, out_names;
     int layers, heads, head_dim, start_id, eos_id, pad_id, unk_id;
 public:
-    Opus(const std::string & dir, int threads) {
+    // ONNX Runtime session creation has no progress hook, so the load is cancellable only
+    // between the graph loads. They are small enough that this keeps Stop bounded.
+    Opus(const std::string & dir, int threads, int64_t loadControlId) {
+        const auto loadControl = model_load_control(loadControlId);
+        const auto throwIfLoadCancelled = [&loadControl] {
+            if (loadControl && loadControl->cancelled.load())
+                throw std::runtime_error("OPUS model load cancelled");
+        };
+        throwIfLoadCancelled();
         auto config = read_json(dir + "/config.json");
         vocab = read_json(dir + "/vocab.json");
         layers = config.at("decoder_layers"); heads = config.at("decoder_attention_heads");
@@ -491,7 +555,9 @@ public:
         Ort::SessionOptions options;
         options.SetIntraOpNumThreads(threads); options.SetInterOpNumThreads(1);
         options.SetGraphOptimizationLevel(GraphOptimizationLevel::ORT_ENABLE_ALL);
+        throwIfLoadCancelled();
         encoder = Ort::Session(environment(), (dir + "/encoder.onnx").c_str(), options);
+        throwIfLoadCancelled();
         decoder = Ort::Session(environment(), (dir + "/decoder.onnx").c_str(), options);
         in_names = {"encoder_attention_mask", "input_ids", "encoder_hidden_states"};
         out_names = {"logits"};
@@ -564,7 +630,10 @@ public:
 }
 std::unique_ptr<TranslationEngine> load_hymt(const std::string & path, int threads,
                                               int batch, int ubatch, bool preferOpenCL,
-                                              const std::string & cacheDir) {
-    return std::make_unique<HyMt>(path, threads, batch, ubatch, preferOpenCL, cacheDir);
+                                              const std::string & cacheDir,
+                                              int64_t loadControl) {
+    return std::make_unique<HyMt>(path, threads, batch, ubatch, preferOpenCL, cacheDir, loadControl);
 }
-std::unique_ptr<TranslationEngine> load_opus(const std::string & path, int threads) { return std::make_unique<Opus>(path, threads); }
+std::unique_ptr<TranslationEngine> load_opus(const std::string & path, int threads, int64_t loadControl) {
+    return std::make_unique<Opus>(path, threads, loadControl);
+}

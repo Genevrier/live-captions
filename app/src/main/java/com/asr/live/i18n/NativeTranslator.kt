@@ -14,9 +14,17 @@ private fun interface NativeProgressCallback {
 /** The worker owns translate/close. A controller may request cancellation without freeing the model. */
 class NativeTranslator(path: File, threads: Int, private val opus: Boolean, private val profile: Profile,
                        private val glossary: String = "", preferOpenCl: Boolean = false,
-                       cacheDir: File? = null, batch: Int = 256, ubatch: Int = 128) : LocalTranslator {
-    @Volatile private var handle: Long = load(path.absolutePath.toByteArray(Charsets.UTF_8), threads, batch, ubatch, opus,
-        preferOpenCl, cacheDir?.absolutePath?.toByteArray(Charsets.UTF_8) ?: ByteArray(0))
+                       cacheDir: File? = null, batch: Int = 256, ubatch: Int = 128,
+                       loadScope: ModelLoadScope? = null) : LocalTranslator {
+    // The load token is created by the caller before this constructor runs, so Stop can abort a
+    // multi-GB GGUF read that would otherwise have no cancellable handle to target.
+    @Volatile private var handle: Long = loadScope.let { scope ->
+        val token = scope?.beginLoad() ?: 0L
+        try {
+            load(path.absolutePath.toByteArray(Charsets.UTF_8), threads, batch, ubatch, opus,
+                preferOpenCl, cacheDir?.absolutePath?.toByteArray(Charsets.UTF_8) ?: ByteArray(0), token)
+        } finally { scope?.endLoad() }
+    }
     @Volatile private var lastTimings = TranslationTimings()
     private val activeRequestId = AtomicLong(NO_REQUEST)
     private val cancelledRequestId = AtomicLong(NO_REQUEST)
@@ -114,7 +122,8 @@ class NativeTranslator(path: File, threads: Int, private val opus: Boolean, priv
     }
     private external fun resetCancellation(handle: Long)
     private external fun load(path: ByteArray, threads: Int, batch: Int, ubatch: Int,
-                              opus: Boolean, preferOpenCl: Boolean, cacheDir: ByteArray): Long
+                              opus: Boolean, preferOpenCl: Boolean, cacheDir: ByteArray,
+                              loadControl: Long): Long
     private external fun run(handle: Long, text: ByteArray, sessionId: Long, segmentId: Long, revision: Int,
                              cacheScope: ByteArray, callback: NativeProgressCallback?): ByteArray
     private external fun backend(handle: Long): String

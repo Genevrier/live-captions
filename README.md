@@ -52,6 +52,17 @@ This heuristic is not a claim that Parakeet is always more accurate.
   are visible. Source text appears below the prominent translation.
 - Stop/restart invalidates old work. Native resources are released by their owning
   worker; cancellation does not free an in-use recognizer or translator.
+- **Listen** starts the microphone as soon as recognition is ready. Translation and
+  optional correction models keep loading concurrently, so a multi-GB translation
+  model never delays capture; a required worker that fails later still ends the
+  session with a visible error.
+- **Stop** is bounded. It immediately stops accepting input and discards work that
+  only feeds the live caption line, while captured PCM still flushes through the
+  recognizer. After ~1.5 s remaining translations are dropped but recognition keeps
+  flushing; after ~2.5 s the session is force-cancelled; after ~4 s the UI returns to
+  STOPPED regardless, so STOPPING is never open-ended. A translation model still
+  loading when Stop arrives is cancelled mid-load through the llama.cpp model-load
+  progress callback.
 - Performance panel: recognition time/RTF, translation and correction time,
   endpoint-to-caption latency, queue depths, audio backlog and dropped work.
   Endpoint latency starts at the recognizer's endpoint event, not a measured
@@ -69,6 +80,9 @@ CPU is the default. The CI APK also includes a real **experimental QNN/NPU** pat
 for **SM8750 only**, using the released 560-ms contexts and matching QAIRT 2.40 /
 HTP v79 libraries. It is opt-in, visibly labeled experimental and isolated in a
 private process. Native failure or timeout falls back to the downloaded CPU model.
+QNN startup is bounded for interactive use — 3 s to bind, 1 s for the process
+round trip and 8 s to initialize — so an unhealthy vendor stack costs at most a few
+seconds before CPU is selected instead of delaying Listen.
 Only a successfully initialized QNN session is labeled QNN; CPU fallback is
 explicit. No additional QNN chunk option is exposed. CPU has separately verified
 160/320/560/1120-ms model profiles; 560 ms remains the default.

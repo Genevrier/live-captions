@@ -27,6 +27,24 @@ struct TranslationProgress {
 
 using TranslationProgressCallback = std::function<void(const TranslationProgress &)>;
 
+/**
+ * Cancellation token for a model load. It is created before the load starts, so a Stop that
+ * lands while a multi-GB GGUF is still being read can abort it: the llama.cpp model load
+ * progress callback returns false once `cancelled` is set.
+ *
+ * Ownership: the registry below hands out shared references. A loader keeps its own reference
+ * for the whole load, so releasing the id from Java never frees a token the loader still reads.
+ * cancel/release are safe in any order and from any thread; release is idempotent.
+ */
+struct ModelLoadControl {
+    std::atomic<bool> cancelled{false};
+};
+
+int64_t create_model_load_control();
+void cancel_model_load_control(int64_t id);
+void release_model_load_control(int64_t id);
+std::shared_ptr<ModelLoadControl> model_load_control(int64_t id);
+
 struct TranslationStats {
     int64_t prefill_ms = 0;
     int64_t decode_ms = 0;
@@ -78,5 +96,7 @@ protected:
 };
 std::unique_ptr<TranslationEngine> load_hymt(const std::string & path, int threads,
                                               int batch, int ubatch, bool prefer_opencl,
-                                              const std::string & cache_dir);
-std::unique_ptr<TranslationEngine> load_opus(const std::string & directory, int threads);
+                                              const std::string & cache_dir,
+                                              int64_t load_control = 0);
+std::unique_ptr<TranslationEngine> load_opus(const std::string & directory, int threads,
+                                              int64_t load_control = 0);
