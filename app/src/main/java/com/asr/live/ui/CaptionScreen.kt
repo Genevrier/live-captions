@@ -168,6 +168,23 @@ fun CaptionScreen(vm: CaptionViewModel, hasAudioPermission: Boolean, onRequestPe
                 }
             }
             Text("Fast uses Hy-MT2 1.8B Q4_K_M; for Dutch → English it also runs the disclosed OPUS/Hy A/B and OPUS supplies provisional captions. Balanced uses Hy-MT2 1.8B Q8_0. Max uses one Hy-MT2 7B Q4_K_M engine; Parakeet correction is separate and optional. No profile silently benchmarks the 7B model. QNN and OpenCL remain experimental until measured on this phone.", style = MaterialTheme.typography.bodySmall)
+            HorizontalDivider(Modifier.padding(vertical = 12.dp))
+            Text("Automatic — optimized for this device", style = MaterialTheme.typography.titleSmall)
+            val calibration by vm.calibration.collectAsState()
+            TextButton(onClick = { vm.optimizeForThisDevice() }, enabled = stopped && !busy && !benchmarkBusy) {
+                Text(if (benchmarkBusy) "Calibrating…" else "Optimize for this phone")
+            }
+            Text("Runs local compatibility, smoke and source-text quality screening over the " +
+                "curated candidates for ${config.profile.label} and keeps the best validated " +
+                "result — never a claim of universal superiority. Nothing leaves this device.",
+                style = MaterialTheme.typography.bodySmall)
+            calibration?.let { outcome ->
+                outcome.reports.forEach { report ->
+                    Text("${report.candidate.displayName}: ${report.status} — ${report.detail}",
+                        style = MaterialTheme.typography.bodySmall)
+                }
+                Text(outcome.reason, style = MaterialTheme.typography.bodySmall)
+            }
             if (config.opusBenchmarkEnabled) {
                 Text("Live OPUS vs ${config.quality.label} A/B from the same microphone audio", style = MaterialTheme.typography.titleMedium)
                 Text("Both translators receive the identical stable Nemotron transcript prefix. Latency is measured per output; compare translation quality side by side and record a preference. Votes are human judgments, not reference-scored accuracy.", style = MaterialTheme.typography.bodySmall)

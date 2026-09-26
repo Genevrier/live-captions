@@ -61,7 +61,10 @@ class CaptionViewModel(app: Application) : AndroidViewModel(app) {
         modelId = prefs.getString("model", ModelCatalog.DEFAULT.id) ?: ModelCatalog.DEFAULT.id,
         threads = prefs.getInt("threads", 6).coerceIn(1, 8),
         correctionThreads = prefs.getInt("correctionThreads", 4).let { if (it in setOf(2, 4, 6, 8)) it else 4 },
+        // Precedence: an explicit manual override, then a fresh automatic-calibration result
+        // for this exact runtime/device (stale ones are never reused silently), then the preset.
         quality = preferredQuality
+            ?: com.asr.live.pipeline.engine.CalibrationStore(app).selectedQuality(initialProfile)
             ?: when (initialMode) {
                 PerformanceMode.FAST -> TranslationQuality.HY_Q4
                 PerformanceMode.MAX_QUALITY -> TranslationQuality.HY_7B_Q4
@@ -111,6 +114,32 @@ class CaptionViewModel(app: Application) : AndroidViewModel(app) {
                 rows.forEach { android.util.Log.i("LiveCaptionsBenchmark", it.reportLine()) }
             } catch (t: Throwable) {
                 _asrBenchmarkError.value = t.message ?: t.javaClass.simpleName
+            } finally { _benchmarkBusy.value = false }
+        }
+    }
+    private val _calibration = MutableStateFlow<com.asr.live.pipeline.engine.SelectionOutcome?>(null)
+    val calibration = _calibration.asStateFlow()
+    /**
+     * "Optimize for this phone": Stage A/B calibration (compatibility, smoke, source-text
+     * quality) for the current language pair over the curated candidates. Applies the winner
+     * immediately in this build via [CalibrationStore] and [update] — no APK release needed.
+     * Excludes the Hy-MT2 7B extended tier unless [includeExtendedTier] is set, matching
+     * "Full calibration" in the design.
+     */
+    fun optimizeForThisDevice(includeExtendedTier: Boolean = false) {
+        if (_busy.value || _benchmarkBusy.value || CaptionState.running.value) return
+        val current = _config.value
+        _benchmarkBusy.value = true
+        viewModelScope.launch {
+            try {
+                val outcome = withContext(Dispatchers.IO) {
+                    com.asr.live.pipeline.engine.EngineCalibrator.calibrate(
+                        getApplication(), current.profile, current.gpuTranslation, includeExtendedTier)
+                }
+                _calibration.value = outcome
+                outcome.winner?.quality?.let { winner ->
+                    update(current.copy(quality = winner), isAutomaticCalibration = true)
+                }
             } finally { _benchmarkBusy.value = false }
         }
     }
@@ -236,7 +265,7 @@ class CaptionViewModel(app: Application) : AndroidViewModel(app) {
     fun models() = ModelCatalog.ALL.filter { it.supports(_config.value.profile.source) }
     fun selectMode(mode: PerformanceMode) = update(_config.value.withMode(mode))
     fun update(config: SessionConfig, userChangedQnn: Boolean = false, userChangedCorrection: Boolean = false,
-               userChangedOpenCl: Boolean = false) {
+               userChangedOpenCl: Boolean = false, isAutomaticCalibration: Boolean = false) {
         if (_busy.value || _benchmarkBusy.value || CaptionState.running.value) return
         val info = ModelCatalog.byId(config.modelId)
         var adjusted = if (config.profile != _config.value.profile) config.copy(modelId = ModelCatalog.defaultFor(config.profile.source).id, correction = config.correction && config.profile.correctionSupported)
@@ -248,7 +277,10 @@ class CaptionViewModel(app: Application) : AndroidViewModel(app) {
             _managed.value.none { it.id == adjusted.modelId && it.selectable }) return
         val previous = _config.value
         _config.value = adjusted
-        if (previous.quality != adjusted.quality) prefs.edit().putBoolean("quality.userOverride", true).apply()
+        // A calibration result is not a manual choice: it must not freeze out future
+        // recalibration the way a real user override intentionally does.
+        if (previous.quality != adjusted.quality && !isAutomaticCalibration)
+            prefs.edit().putBoolean("quality.userOverride", true).apply()
         prefs.edit().putString("profile", adjusted.profile.name).putString("model", adjusted.modelId)
             .putInt("threads", adjusted.threads).putInt("correctionThreads", adjusted.correctionThreads).putString("quality", adjusted.quality.name)
             .putString("performanceMode", adjusted.performanceMode.name)
