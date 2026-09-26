@@ -10,6 +10,7 @@ import android.util.Log
 import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
 import com.asr.live.MainActivity
+import com.asr.live.i18n.ResidentTranslatorManager
 import com.asr.live.model.ModelCatalog
 import com.asr.live.pipeline.*
 import java.util.concurrent.atomic.AtomicLong
@@ -178,7 +179,28 @@ class CaptionService : Service() {
         overlay.close(); overlayPrefs.close()
         current?.let { CaptionState.cancel(it.generation); it.cancel() }
         current = null
+        // Process teardown: nothing will reuse a resident translator after this. close() blocks
+        // until any in-flight native call it owns actually returns, so run it off the main
+        // thread rather than risk stalling this callback.
+        Thread({ ResidentTranslatorManager.closeAll() }, "resident-translator-teardown")
+            .apply { isDaemon = true }.start()
         super.onDestroy()
+    }
+
+    /**
+     * Critical memory pressure: closing a resident translator here can make an active session's
+     * next translation fail (it surfaces as one failed request, not a crash — NativeTranslator
+     * safely finishes or aborts any call already in flight before freeing). That degraded
+     * translation is preferable to being killed by the OS for holding onto GGUF-sized native
+     * memory it does not urgently need.
+     */
+    override fun onTrimMemory(level: Int) {
+        super.onTrimMemory(level)
+        if (level == android.content.ComponentCallbacks2.TRIM_MEMORY_RUNNING_CRITICAL ||
+            level == android.content.ComponentCallbacks2.TRIM_MEMORY_COMPLETE) {
+            Thread({ ResidentTranslatorManager.closeAll() }, "resident-translator-trim")
+                .apply { isDaemon = true }.start()
+        }
     }
 
     private fun createAndStartSession(generation: Long, config: SessionConfig) {
